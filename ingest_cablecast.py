@@ -170,10 +170,11 @@ def build_embed_url(show_id):
 
 
 def build_timestamped_url(show_id, seconds):
-    """Build a deep-link URL that starts playback at the given second."""
+    """Build a deep-link URL that starts playback at the given second.
+    The Cablecast embed reads ?seek=N (it ignores &t=)."""
     return (
         f'{REFLECT_BASE}/internetchannel/watch-vod-embed'
-        f'?showId={show_id}&site=1&t={int(seconds)}'
+        f'?showId={show_id}&site=1&seek={int(seconds)}'
     )
 
 

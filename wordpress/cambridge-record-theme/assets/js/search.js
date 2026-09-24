@@ -1,0 +1,135 @@
+/**
+ * Transcript search — /?s=term
+ * Source: GET /wp-json/cambridge-record/v1/search?q=&limit=
+ *         GET /wp-json/cambridge-record/v1/meetings (for permalinks)
+ */
+( function () {
+    'use strict';
+
+    const { api, el, fmtDate, fmtTime, highlight, momentUrl, status, config } = window.CR;
+
+    const LIMIT = 50; // the endpoint caps results at 50
+
+    const resultsEl = document.getElementById( 'search-results' );
+    const summaryEl = document.getElementById( 'search-summary' );
+    const form      = document.querySelector( '.search-head .cr-search-form' );
+    const input     = form && form.querySelector( 'input[name="s"]' );
+    if ( ! resultsEl || ! input ) return;
+
+    // The search endpoint returns meeting IDs but not permalinks, so we
+    // look them up from the meeting index (fetched once, lazily).
+    let permalinksPromise = null;
+    function permalinks() {
+        if ( ! permalinksPromise ) {
+            permalinksPromise = api( 'cambridge-record/v1/meetings' )
+                .then( ( d ) => new Map( ( d.meetings || [] ).map( ( m ) => [ m.id, m.permalink ] ) ) )
+                .catch( () => new Map() );
+        }
+        return permalinksPromise;
+    }
+
+    function meetingUrl( links, id ) {
+        return links.get( id ) || `${ config.homeUrl }?post_type=cr_meeting&p=${ id }`;
+    }
+
+    function group( results ) {
+        const byMeeting = new Map();
+        results.forEach( ( r ) => {
+            if ( ! byMeeting.has( r.meeting_id ) ) {
+                byMeeting.set( r.meeting_id, { ...r, hits: [] } );
+            }
+            byMeeting.get( r.meeting_id ).hits.push( r.segment );
+        } );
+        return [ ...byMeeting.values() ]
+            .sort( ( a, b ) => ( b.meeting_date || '' ).localeCompare( a.meeting_date || '' ) )
+            .map( ( g ) => ( { ...g, hits: g.hits.sort( ( a, b ) => a.start_seconds - b.start_seconds ) } ) );
+    }
+
+    function renderGroup( g, links, q ) {
+        const url = meetingUrl( links, g.meeting_id );
+        return el( 'section', { class: 'result-group' },
+            el( 'div', { class: 'result-group__head' },
+                el( 'h2', {}, el( 'a', { href: momentUrl( url, null, q ) }, g.meeting_title || 'Untitled meeting' ) ),
+                el( 'span', { class: 'muted' },
+                    [ fmtDate( g.meeting_date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' } ),
+                      `${ g.hits.length } moment${ g.hits.length === 1 ? '' : 's' }` ].filter( Boolean ).join( ' · ' ) )
+            ),
+            el( 'ol', { class: 'hits' }, g.hits.map( ( seg ) =>
+                el( 'li', { class: 'hit' },
+                    el( 'a', { href: momentUrl( url, seg.start_seconds, q ) },
+                        el( 'span', { class: 'hit__time' }, fmtTime( seg.start_seconds ) ),
+                        el( 'span', { class: 'hit__text' },
+                            highlight( String( seg.text || '' ).replace( />>+/g, '' ).trim(), q ),
+                            seg.is_vote ? [ ' ', el( 'span', { class: 'tag tag--vote' }, 'vote' ) ] : null )
+                    )
+                )
+            ) )
+        );
+    }
+
+    let requestId = 0;
+
+    async function run( q ) {
+        const id = ++requestId;
+        q = q.trim();
+        document.title = [ q ? `“${ q }”` : 'Search', config.siteName ].filter( Boolean ).join( ' – ' );
+
+        if ( q.length < 2 ) {
+            summaryEl.textContent = '';
+            resultsEl.replaceChildren(
+                el( 'p', { class: 'status' }, 'Search for any word or phrase said in a meeting. Each result links to that moment in the video.' )
+            );
+            return;
+        }
+
+        summaryEl.textContent = '';
+        resultsEl.replaceChildren( el( 'p', { class: 'status loading' }, `Searching for “${ q }”` ) );
+
+        try {
+            const [ data, links ] = await Promise.all( [
+                api( 'cambridge-record/v1/search', { q, limit: LIMIT } ),
+                permalinks(),
+            ] );
+            if ( id !== requestId ) return; // a newer search started
+
+            const groups = group( data.results || [] );
+            if ( ! groups.length ) {
+                summaryEl.textContent = `No moments found for “${ q }”.`;
+                status( resultsEl, 'Try a shorter phrase, a different spelling, or a single keyword. Captions are machine-generated, so names are sometimes misspelled.' );
+                return;
+            }
+
+            const n = data.count;
+            summaryEl.textContent =
+                `${ n }${ n >= LIMIT ? '+' : '' } moment${ n === 1 ? '' : 's' } in ${ groups.length } meeting${ groups.length === 1 ? '' : 's' }`;
+
+            resultsEl.replaceChildren(
+                ...groups.map( ( g ) => renderGroup( g, links, q ) ),
+                n >= LIMIT
+                    ? el( 'p', { class: 'search-note' }, `Showing the first ${ LIMIT } moments. Try a more specific phrase to narrow results.` )
+                    : null
+            );
+        } catch ( e ) {
+            if ( id !== requestId ) return;
+            status( resultsEl, 'Search failed. Please try again.', true );
+        }
+    }
+
+    form.addEventListener( 'submit', ( e ) => {
+        e.preventDefault();
+        const q = input.value.trim();
+        const url = new URL( window.location.href );
+        url.searchParams.set( 's', q );
+        history.pushState( { q }, '', url );
+        run( q );
+    } );
+
+    window.addEventListener( 'popstate', () => {
+        const q = new URLSearchParams( window.location.search ).get( 's' ) || '';
+        input.value = q;
+        run( q );
+    } );
+
+    run( input.value );
+    if ( ! input.value ) input.focus();
+} )();

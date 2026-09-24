@@ -201,6 +201,16 @@ Caption files, video files, and show metadata are all publicly accessible
 via the Cablecast CDN. Authentication is only required for write
 operations and internal asset endpoints (`assetreellinks`).
 
+**8. The embed player's start-time parameter is `seek`, not `t`**  
+`watch-vod-embed?showId=…&site=1&seek=1588` starts at 1588s and plays;
+`&t=` is silently ignored (video starts at 0:00). The player also talks
+to the embedding page via `postMessage`: send
+`{type: 'player-cue', value: seconds}` to jump without reloading; it
+sends back `{message: 'timeupdate', value}`, `{message: 'playing', value}`
+and `{message: 'ready'}`. Found by reading Cablecast's `VideoJs-*.js`
+bundle. The embed also only allows framing from domains on its
+`frame-ancestors` allowlist (mediatechaction.com added Sept 2026).
+
 ---
 
 ## What's working (as of September 2026)
