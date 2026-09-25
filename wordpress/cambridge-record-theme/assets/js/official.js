@@ -22,7 +22,10 @@
 
     function voteRow( v ) {
         return el( 'li', { class: `record-row${ v.dissent ? ' is-dissent' : '' }` },
-            el( 'span', { class: `cast cast--${ v.member_vote.toLowerCase() }` }, VOTE_LABELS[ v.member_vote ] || v.member_vote ),
+            el( 'span', { class: `cast cast--${ v.member_vote.toLowerCase() }` },
+                v.member_vote === 'CANDIDATE' && v.member_candidate
+                    ? `For ${ v.member_candidate.split( ' ' ).pop() }`
+                    : VOTE_LABELS[ v.member_vote ] || v.member_vote ),
             el( 'div', { class: 'record-row__body' },
                 el( 'a', { href: v.moment_url, class: 'record-row__title' }, voteLabel( v ) ),
                 el( 'div', { class: 'vote-meta' },

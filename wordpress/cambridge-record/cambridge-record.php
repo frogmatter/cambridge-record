@@ -5,7 +5,7 @@
  *              Single post per meeting — segments, agenda items, and votes
  *              stored as JSON in post meta. Designed for shared hosting.
  *              No plugin dependencies. REST API ready for the local pipeline.
- * Version:     0.3.0
+ * Version:     0.3.1
  * Author:      Matt / Cambridge Public Schools
  * License:     CC BY-SA 4.0
  * Site:        mediatechaction.com
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_PLUGIN_VERSION', '0.3.0' );
+define( 'CR_PLUGIN_VERSION', '0.3.1' );
 
 
 // ═══════════════════════════════════════════════════════
@@ -211,6 +211,12 @@ function cr_register_rest_routes() {
                 'type'              => 'integer',
                 'sanitize_callback' => 'absint',
             ],
+            'per_meeting' => [
+                'default'           => 5,
+                'type'              => 'integer',
+                'sanitize_callback' => 'absint',
+                'description'       => 'Transcript moments returned per meeting (all are counted)',
+            ],
         ],
     ] );
 
@@ -237,64 +243,151 @@ function cr_register_rest_routes() {
 
 
 /**
- * Full-text search across all meeting transcript segments.
+ * Search across all published meetings: transcript moments and agenda items.
  *
- * Strategy: WordPress native search on post_content, which holds all
- * segment text concatenated. WordPress indexes post_content natively
- * so this is fast even as the archive grows. Once a matching meeting
- * is found, we filter its segments in PHP to return only the ones
- * containing the query term, with their deep-link URLs.
+ * Candidate meetings come from WordPress native search on post_content
+ * (the pipeline stores all transcript text there), run for both straight
+ * and curly apostrophes. Each candidate's segments are then matched in PHP
+ * at the start of a word ("transport" finds "transportation", "art"
+ * doesn't find "start"). Agenda titles are matched in every meeting, since
+ * they aren't part of post_content.
  *
- * Returns up to $limit matching segments, each with:
- *   - the matching segment object
- *   - meeting_id, meeting_date, meeting_body, embed_url
- *   - deep_link_url for jumping to the exact moment
+ * Response:
+ *   meetings: [{meeting_id, meeting_title, meeting_date, permalink,
+ *               match_count, hits: [segment…] (first per_meeting),
+ *               agenda_hits: [{docket, title, start_seconds, vote}]}]
+ *             newest meeting first
+ *   count / meeting_count: totals
+ *   results: flat list of the first `limit` hits (the 0.2 response shape)
  */
 function cr_search_segments( WP_REST_Request $request ) {
-    $query   = $request->get_param( 'q' );
-    $limit   = min( $request->get_param( 'limit' ), 50 );
-    $results = [];
+    $query       = trim( (string) $request->get_param( 'q' ) );
+    $limit       = min( max( (int) $request->get_param( 'limit' ), 1 ), 200 );
+    $per_meeting = min( max( (int) ( $request->get_param( 'per_meeting' ) ?: 5 ), 1 ), 50 );
+    $needle      = cr_search_normalize( $query );
 
-    // Use WordPress native full-text search on post_content.
-    // The pipeline stores all segment text in post_content for this purpose.
-    $meetings = get_posts( [
+    $empty = [ 'query' => $query, 'count' => 0, 'meeting_count' => 0, 'meetings' => [], 'results' => [] ];
+    if ( mb_strlen( $needle ) < 2 ) {
+        return rest_ensure_response( $empty );
+    }
+    $pattern = '/(?<![\p{L}\p{N}])' . preg_quote( $needle, '/' ) . '/iu';
+
+    $published = get_posts( [
         'post_type'      => 'cr_meeting',
         'post_status'    => 'publish',
         'posts_per_page' => -1,
-        's'              => $query,
+        'fields'         => 'ids',
     ] );
 
-    foreach ( $meetings as $meeting ) {
-        $meta     = get_post_meta( $meeting->ID );
-        $segments = json_decode( $meta['segments_json'][0] ?? '[]', true );
+    $transcript_ids = [];
+    foreach ( array_unique( [ $query, str_replace( "'", '’', $query ), str_replace( '’', "'", $query ) ] ) as $variant ) {
+        $transcript_ids = array_merge( $transcript_ids, get_posts( [
+            'post_type'      => 'cr_meeting',
+            'post_status'    => 'publish',
+            'posts_per_page' => -1,
+            'fields'         => 'ids',
+            's'              => $variant,
+        ] ) );
+    }
+    $transcript_ids = array_flip( $transcript_ids );
 
-        if ( ! is_array( $segments ) ) continue;
+    $groups = [];
+    foreach ( $published as $id ) {
+        $hits = [];
+        $match_count = 0;
+        if ( isset( $transcript_ids[ $id ] ) ) {
+            $segments = json_decode( get_post_meta( $id, 'segments_json', true ) ?: '[]', true );
+            foreach ( is_array( $segments ) ? $segments : [] as $seg ) {
+                if ( preg_match( $pattern, cr_search_normalize( $seg['text'] ?? '' ) ) ) {
+                    $match_count++;
+                    if ( count( $hits ) < $per_meeting ) {
+                        $hits[] = $seg;
+                    }
+                }
+            }
+        }
 
-        $query_lower = strtolower( $query );
-
-        foreach ( $segments as $seg ) {
-            if ( strpos( strtolower( $seg['text'] ?? '' ), $query_lower ) === false ) {
+        $agenda_hits = [];
+        $agenda = json_decode( get_post_meta( $id, 'agenda_json', true ) ?: '[]', true );
+        $votes  = json_decode( get_post_meta( $id, 'votes_json', true ) ?: '[]', true );
+        $votes_by_index = [];
+        foreach ( is_array( $votes ) ? $votes : [] as $v ) {
+            $votes_by_index[ $v['index'] ?? -1 ] = $v;
+        }
+        foreach ( is_array( $agenda ) ? $agenda : [] as $item ) {
+            if ( ( $item['item_type'] ?? '' ) === 'section' ) {
                 continue;
             }
+            $haystack = cr_search_normalize( ( $item['docket'] ?? '' ) . ' ' . ( $item['title'] ?? '' ) );
+            if ( ! preg_match( $pattern, $haystack ) ) {
+                continue;
+            }
+            $vote = null;
+            foreach ( array_reverse( $item['vote_indexes'] ?? [] ) as $vi ) {
+                if ( isset( $votes_by_index[ $vi ] ) ) {
+                    $v = $votes_by_index[ $vi ];
+                    $vote = [ 'result' => $v['result'] ?? '', 'passed' => $v['passed'] ?? null,
+                              'vote_for' => $v['vote_for'] ?? null, 'vote_against' => $v['vote_against'] ?? null ];
+                    break;
+                }
+            }
+            $agenda_hits[] = [
+                'docket'        => $item['docket'] ?? null,
+                'title'         => $item['title'] ?? '',
+                'item_type'     => $item['item_type'] ?? '',
+                'start_seconds' => $item['start_seconds'] ?? null,
+                'vote'          => $vote,
+            ];
+        }
 
+        if ( ! $match_count && ! $agenda_hits ) {
+            continue;
+        }
+        $groups[] = [
+            'meeting_id'    => $id,
+            'meeting_title' => get_the_title( $id ),
+            'meeting_date'  => get_post_meta( $id, 'meeting_date', true ),
+            'meeting_body'  => get_post_meta( $id, 'meeting_body', true ),
+            'embed_url'     => get_post_meta( $id, 'cablecast_embed_url', true ),
+            'permalink'     => get_permalink( $id ),
+            'match_count'   => $match_count,
+            'hits'          => $hits,
+            'agenda_hits'   => $agenda_hits,
+        ];
+    }
+
+    usort( $groups, fn( $a, $b ) => strcmp( $b['meeting_date'], $a['meeting_date'] ) );
+
+    // Flat list in the 0.2 shape, for older themes
+    $results = [];
+    foreach ( $groups as $g ) {
+        foreach ( $g['hits'] as $seg ) {
+            if ( count( $results ) >= $limit ) {
+                break 2;
+            }
             $results[] = [
-                'meeting_id'    => $meeting->ID,
-                'meeting_date'  => $meta['meeting_date'][0]  ?? '',
-                'meeting_body'  => $meta['meeting_body'][0]  ?? '',
-                'meeting_title' => get_the_title( $meeting->ID ),
-                'embed_url'     => $meta['cablecast_embed_url'][0] ?? '',
+                'meeting_id'    => $g['meeting_id'],
+                'meeting_date'  => $g['meeting_date'],
+                'meeting_body'  => $g['meeting_body'],
+                'meeting_title' => $g['meeting_title'],
+                'embed_url'     => $g['embed_url'],
                 'segment'       => $seg,
             ];
-
-            if ( count( $results ) >= $limit ) break 2;
         }
     }
 
     return rest_ensure_response( [
-        'query'   => $query,
-        'count'   => count( $results ),
-        'results' => $results,
+        'query'         => $query,
+        'count'         => array_sum( array_column( $groups, 'match_count' ) ),
+        'meeting_count' => count( $groups ),
+        'meetings'      => $groups,
+        'results'       => $results,
     ] );
+}
+
+/** Lowercase, curly apostrophes → straight, so "don't" finds "don’t". */
+function cr_search_normalize( $text ) {
+    return mb_strtolower( str_replace( [ '’', '‘' ], "'", (string) $text ) );
 }
 
 
@@ -427,9 +520,11 @@ function cr_voting_record( $minutes_name ) {
                 continue;   // caption-flagged guesses have no per-member votes
             }
             $cast = null;
+            $entry_candidate = null;
             foreach ( $v['roll_call'] ?? [] as $entry ) {
                 if ( cr_name_key( $entry['member'] ?? '' ) === $key ) {
                     $cast = $entry['vote'];
+                    $entry_candidate = $entry['candidate'] ?? null;   // elections: who they voted for
                     break;
                 }
             }
@@ -466,6 +561,7 @@ function cr_voting_record( $minutes_name ) {
                 'vote_for'      => $v['vote_for'] ?? null,
                 'vote_against'  => $v['vote_against'] ?? null,
                 'member_vote'   => $cast,
+                'member_candidate' => $cast === 'CANDIDATE' ? ( $entry_candidate ?? null ) : null,
                 'dissent'       => $dissent,
                 'procedural'    => cr_is_procedural_vote( $v ),
                 'start_seconds' => $v['start_seconds'] ?? null,

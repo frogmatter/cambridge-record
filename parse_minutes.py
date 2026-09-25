@@ -39,9 +39,11 @@ NAME = (r"(?:Vice Chair|Chair|Mayor|Memb?er)\s+"
         r"(?:(?:de|da|del|van|von|la|le)\s+)*[A-Z]\s?[\w’'\-]+"
         r"(?:\s+(?:(?:de|da|del)\s+)?[A-Z]\s?[a-z][\w’'\-]*){0,2}")
 NAME_RE = re.compile(NAME)
-VOTE = r'Y\s?E\s?A|N\s?A\s?Y|YES|NO|A\s?B\s?S\s?E\s?N\s?T|P\s?R\s?E\s?S\s?E\s?N\s?T|ABSTAIN(?:ED)?|RECUSED'
-PAIR_RE = re.compile(rf'(?P<member>{NAME})\s*,\s*(?P<vote>{VOTE})\b')
-VOTE_ALIASES = {'YES': 'YEA', 'NO': 'NAY', 'ABSTAINED': 'ABSTAIN'}
+VOTE = r'Y\s?E\s?A|N\s?A\s?Y|YES|NO|A\s?B\s?S\s?E\s?N\s?T|P\s?R\s?E\s?S\s?E?\s?N\s?T|ABSTAIN(?:ED)?|RECUSED'
+# In elections (chair, vice chair) members vote for a person: "Member Hudson, MEMBER DUBE"
+CANDIDATE = r"(?:VICE CHAIR|CHAIR|MAYOR|MEMBER)\s+[A-Z][A-Z’'\-]+(?:\s+[A-Z][A-Z’'\-]+){0,2}"
+PAIR_RE = re.compile(rf'(?P<member>{NAME})\s*,\s*(?:(?P<vote>{VOTE})|(?P<candidate>{CANDIDATE}))\b')
+VOTE_ALIASES = {'YES': 'YEA', 'NO': 'NAY', 'ABSTAINED': 'ABSTAIN', 'PRESNT': 'PRESENT'}
 # Between pairs: separators, plus a stray bare vote ("Mayor Siddiqui, YEA; YEA; Chair …")
 TALLY_SEP_RE = re.compile(r'[\s,;]*(?:(?:YEA|NAY)\s*;\s*)?')
 
@@ -68,6 +70,7 @@ SECTION_RE = re.compile(
 PAGE_HEADER_RE = re.compile(r'Cambridge School Committee\s+[A-Z][a-z]+\s+\d{1,2},\s+\d{4}\s+[A-Za-z()& ]{0,40}?Meeting\s+\d{1,3}\b')
 
 RESULTS = [   # first match wins
+    (r'nominations?', 'election'),
     (r'\bfailed\b|was not adopted|was defeated', 'failed'),
     (r'\btabled\b', 'tabled'),
     (r'\bpostponed\b', 'postponed'),
@@ -139,8 +142,12 @@ def _parse_tally(text, pos, lead=250):
     lead_text = text[pos:first.start()].strip(' :,;')
     pairs, end, m = [], first.start(), first
     while m:
-        vote = re.sub(r'\s', '', m.group('vote').upper())
-        pairs.append({'member': _clean_name(m.group('member')), 'vote': VOTE_ALIASES.get(vote, vote)})
+        if m.group('candidate'):
+            pairs.append({'member': _clean_name(m.group('member')), 'vote': 'CANDIDATE',
+                          'candidate': _clean_name(m.group('candidate').title().replace(' De ', ' de '))})
+        else:
+            vote = re.sub(r'\s', '', m.group('vote').upper())
+            pairs.append({'member': _clean_name(m.group('member')), 'vote': VOTE_ALIASES.get(vote, vote)})
         end = m.end()
         sep = TALLY_SEP_RE.match(text, end).end()
         m = PAIR_RE.match(text, sep)
@@ -227,6 +234,18 @@ def parse_votes(text, source_url=None):
 
         result = next((label for pattern, label in RESULTS if re.search(pattern, action, re.I)), 'passed')
         passed = result != 'failed'
+
+        # Election: count votes per candidate; the winner goes in the text
+        candidates = {}
+        for p in pairs:
+            if p['vote'] == 'CANDIDATE':
+                candidates[p['candidate']] = candidates.get(p['candidate'], 0) + 1
+        if candidates:
+            method, result = 'election', 'elected'
+            winner, n = max(candidates.items(), key=lambda kv: kv[1])
+            action = re.sub(r'\s+(?:and\s+)?asked for an?$', '', action)
+            action = f'{action} — {winner} elected with {n} vote{"s" if n != 1 else ""}'
+            tallied = False
         if method == 'roll_call' and counts['YEA'] + counts['NAY'] and counts['YEA'] <= counts['NAY']:
             result, passed = 'failed', False
 
@@ -247,6 +266,7 @@ def parse_votes(text, source_url=None):
             'voters_for':      [p['member'] for p in pairs if p['vote'] == 'YEA'],
             'voters_against':  [p['member'] for p in pairs if p['vote'] == 'NAY'],
             'roll_call':       pairs,
+            'candidates':      candidates,
             'dockets':         dockets,
             'docket_inferred': inferred,
             'raw_context':     text[clause_start:end].strip()[:1200],

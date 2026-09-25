@@ -30,9 +30,10 @@ VOTE_WORDS = {
     'present': re.compile(r'\bpresent\b', re.I),
 }
 TITLE_RE       = re.compile(r'\b(?:re)?member\b|\bmayor\b|\bchair\b', re.I)   # "Remember Hudson" = "Member Hudson"
-ROLL_CALL_RE   = re.compile(r'roll\s*call', re.I)
+ROLL_CALL_RE   = re.compile(r'roll\s*call|call the roll', re.I)
 VOICE_VOTE_RE  = re.compile(r'\ball\s+(?:those\s+)?in\s+favou?r\b', re.I)
 MOTION_RE      = re.compile(r'\b(?:motion|move|moved|second|seconded)\b', re.I)
+SECONDED_RE    = re.compile(r'\bsecond(?:ed)?\b|so mov', re.I)
 
 # How agenda sections are announced: a transition phrase, then the section name
 TRANSITION = r'(?:next item(?: on (?:our|the) agenda)? is|now we(?: are|\'re) at|moves? us|brings? us to|(?:now )?hear from|begin with|start with|bring(?:ing)? forth|(?:move|moved|moving|turn|turning|go|going) (?:on )?(?:to|into)|bring(?:ing)? forward|now (?:we )?(?:have|move to|bring forward)|next (?:is|up|we have)|on to)'
@@ -61,6 +62,7 @@ MIN_VOTE_WORDS  = 4
 MIN_TITLE_WORDS = 3
 MOTION_LOOKBACK = 60    # seconds before a roll call to look for the motion
 MIN_PAIR_SCORE  = 0.4
+OUT_OF_ORDER_MIN = 0.5   # stricter bar for pairing a vote out of the minutes' order
 
 
 def fix_mojibake(text):
@@ -85,6 +87,10 @@ VOTE_TOKENS  = {'yes': 'yes', 'yea': 'yes', 'yeah': 'yes', 'aye': 'yes', 'no': '
 TITLE_TOKENS = {'member', 'remember', 'mayor', 'chair'}   # "Remember Hudson" = "Member Hudson"
 PAIR_REACH   = 4    # max name tokens between a title and its vote ("Member. De Paula Santos. Yes")
 MIN_PAIRS    = 4    # title→vote pairs needed to count as a roll call
+MIN_NAME_BURST  = 5    # …or this many titles read out in a row (answers not captioned)
+NAME_BURST_GAP  = 8    # max seconds between titles in a burst
+NAME_BURST_SPAN = 45   # max seconds for the whole burst
+DUPLICATE_GAP   = 20   # roll calls closer than this with no motion between are one
 
 
 def _tokens(segments):
@@ -156,13 +162,98 @@ def find_roll_calls(segments):
         kind = 'attendance' if counts['yes'] + counts['no'] == 0 and counts['present'] else 'roll_call'
         found.append({'start': start, 'end': g[-1]['time'], 'counts': counts, 'pairs': len(g), 'kind': kind})
 
+    # Second signal, for recordings where members' answers weren't captioned
+    # ("Callal, Vice Chair Duby. Remember Harding, remember Hudson…"): a
+    # burst of titles read in quick succession that ends with the chair
+    # (the chair votes last) or is followed by an announced tally. The
+    # "call the roll" cue itself is often garbled, so it isn't required.
+    titles = []
+    for i, (t, w, marker) in enumerate(tokens):
+        if not marker and w in TITLE_TOKENS:
+            is_vice = w == 'chair' and i and tokens[i - 1][1] == 'vice'
+            titles.append((t, 'vice chair' if is_vice else w))
+    bursts, cur = [], []
+    for t, title in titles:
+        if cur and t - cur[-1][0] > NAME_BURST_GAP:
+            bursts.append(cur)
+            cur = []
+        cur.append((t, title))
+    if cur:
+        bursts.append(cur)
+
+    for burst in bursts:
+        t0, t1 = burst[0][0], burst[-1][0]
+        if len(burst) < MIN_NAME_BURST or t1 - t0 > NAME_BURST_SPAN:
+            continue
+        if any(r['start'] - 5 <= t0 <= r['end'] + 5 for r in found):
+            continue
+        ends_with_chair = burst[-1][1] == 'chair'
+        announced = _announced_tally(segments, t1)
+        if not (ends_with_chair or announced):
+            continue
+        # (through the burst: "on a motion by Mayor Siddiqui, seconded by…" starts it)
+        lead_in = ' '.join(_clean(s['text']) for s in segments if t0 - 90 <= float(s['start_seconds']) <= t1)
+        # Every vote follows a seconded motion; a roll of names without one is
+        # attendance (the meeting notice's "entertain a motion" doesn't count)
+        if not announced and not SECONDED_RE.search(lead_in):
+            continue
+        kind = 'attendance' if re.search(r'members present|quorum', lead_in[-400:], re.I) and not announced else 'roll_call'
+        start = next((tokens[m][0] for m in markers if t0 - 15 <= tokens[m][0] <= t0), t0)
+        found.append({'start': start, 'end': t1, 'counts': {'yes': 0, 'no': 0, 'absent': 0, 'present': 0},
+                      'pairs': 0, 'kind': kind, 'counts_known': False})
+
+    # Captions sometimes repeat the tail of a roll call ("…Chair. Weinstein.
+    # Yes. … Weinstein. Yes."), which reads as a second roll call seconds
+    # later. A real second vote always has a new motion/second in between.
+    found.sort(key=lambda r: r['start'])
+    merged = []
+    for rc in found:
+        prev = merged[-1] if merged else None
+        if prev and rc['start'] - prev['end'] < DUPLICATE_GAP:
+            between = ' '.join(_clean(s['text']) for s in segments
+                               if prev['end'] < float(s['start_seconds']) < rc['start'] + 3)
+            if not (SECONDED_RE.search(between) or ROLL_CALL_RE.search(between)):
+                if rc['pairs'] > prev['pairs']:
+                    prev['counts'], prev['pairs'] = rc['counts'], rc['pairs']
+                prev['end'] = max(prev['end'], rc['end'])
+                continue
+        merged.append(rc)
+    found = merged
+
+    # The chair usually announces the tally: "on a vote of 7 in the affirmative"
+    for rc in found:
+        announced = _announced_tally(segments, rc['end'])
+        if announced:
+            rc['counts'] = {**rc['counts'], **announced}
+            rc['counts_known'] = True
+        rc.setdefault('counts_known', rc['pairs'] >= MIN_PAIRS)
+
     for s in segments:
         if VOICE_VOTE_RE.search(s['text']):
             t = float(s['start_seconds'])
             if not any(r['start'] - 5 <= t <= r['end'] + 5 for r in found):
-                found.append({'start': t, 'end': t + 10, 'counts': {}, 'pairs': 0, 'kind': 'voice'})
+                found.append({'start': t, 'end': t + 10, 'counts': {}, 'pairs': 0, 'kind': 'voice', 'counts_known': False})
 
     return sorted(found, key=lambda r: r['start'])
+
+
+NUMBER_WORDS = {w: i for i, w in enumerate('zero one two three four five six seven eight nine'.split())}
+_NUM = r'(\d+|zero|one|two|three|four|five|six|seven|eight|nine)'
+TALLY_RE = re.compile(rf'vote of {_NUM}(?: in the)? affirmative'
+                      rf'(?:\W+(?:and\s+)?{_NUM}(?: in the negative| voting (?P<present>present)| (?P<no>no|nay|opposed)))?', re.I)
+
+
+def _announced_tally(segments, after):
+    """{'yes': 7, 'no': 0} from 'on a vote of 7 in the affirmative' said within 30s after a roll call."""
+    text = ' '.join(_clean(s['text']) for s in segments if after <= float(s['start_seconds']) <= after + 30)
+    m = TALLY_RE.search(text)
+    if not m:
+        return None
+    num = lambda g: int(g) if g.isdigit() else NUMBER_WORDS[g.lower()]
+    tally = {'yes': num(m.group(1)), 'no': 0}
+    if m.group(2):
+        tally['present' if m.group('present') else 'no'] = num(m.group(2))
+    return tally
 
 
 # ── 2. Pair minutes votes with caption roll calls ──────────────────────────────
@@ -182,7 +273,7 @@ RESULT_WORDS = {
     'referred':          r'\brefer',
     'amended':           r'\bamend',
     'postponed':         r'postpone',
-    'placed on calendar': r'calendar|unfinished business',
+    'placed on calendar': r'calendar|unfinished business|\btabl',
 }
 # Words for votes named by agenda section rather than result
 SECTION_CONTEXT = {
@@ -197,9 +288,12 @@ SECTION_CONTEXT = {
 PAIR_BONUS = 0.5   # per matched pair: prefer matching every vote over a higher-scoring subset
 
 
+CONTEXT_AFTER = 15   # seconds after a roll call where the chair names the result ("…26001 is tabled")
+
+
 def _context_text(segments, start, end):
-    """Captions from the previous roll call up to just after this one — the discussion this vote closes."""
-    return ' '.join(_clean(s['text']) for s in segments if start <= float(s['start_seconds']) <= end + 10)
+    """Captions between two times, cleaned for matching."""
+    return ' '.join(_clean(s['text']) for s in segments if start <= float(s['start_seconds']) <= end)
 
 
 def _context_score(vote, text):
@@ -218,8 +312,11 @@ def _context_score(vote, text):
         words = section_words if not words else f'{words}|{section_words}'
     if not cues and not words:
         return 0.5
-    if any(c.search(text) for c in cues) or (words and re.search(words, text, re.I)):
+    if any(c.search(text) for c in cues):
         return 1.0
+    if words and re.search(words, text, re.I):
+        # For a docketed vote, a topic word ("table") without the number is weak evidence
+        return 0.5 if cues else 1.0
     return 0.0
 
 
@@ -233,7 +330,8 @@ def _pair_score(vote, rc, context=''):
 
 def _tally_score(vote, rc):
     """0–1: how well the caption tally matches the minutes tally."""
-    if vote['method'] == 'voice':
+    # Minutes sometimes say "on a voice vote" and then list each member — that's a roll call
+    if vote['method'] == 'voice' and not vote.get('roll_call'):
         return 0.8 if rc['kind'] == 'voice' else 0.0
     if rc['kind'] == 'voice':
         return 0.0
@@ -248,8 +346,11 @@ def _tally_score(vote, rc):
     if rc['kind'] == 'attendance' and tally['yes'] + tally['no']:
         return 0.0
 
+    if not rc.get('counts_known', True):
+        return 0.6   # names read, answers not captioned: let context decide
     members = max(sum(tally.values()), 1)
-    diff = sum(abs(tally[k] - rc['counts'].get(k, 0)) for k in tally)
+    keys = tally if rc['pairs'] >= MIN_PAIRS else ('yes', 'no')   # an announced tally has no absences
+    diff = sum(abs(tally[k] - rc['counts'].get(k, 0)) for k in keys)
     return max(0.0, 1 - diff / (2 * members))
 
 
@@ -259,7 +360,11 @@ def align_votes(votes, roll_calls, segments):
     returns {vote_index: (roll_call_index, score)} maximizing total score.
     """
     n, m = len(votes), len(roll_calls)
-    contexts = [_context_text(segments, roll_calls[j - 1]['end'] if j else 0.0, rc['end'])
+    # The discussion before a roll call, plus what the chair says after it
+    # ("…a vote of 7 in the affirmative, 26001 is tabled"), up to the next one
+    contexts = [_context_text(segments,
+                              roll_calls[j - 1]['end'] + CONTEXT_AFTER if j else 0.0,
+                              min(rc['end'] + CONTEXT_AFTER, roll_calls[j + 1]['start'] if j + 1 < m else rc['end'] + CONTEXT_AFTER))
                 for j, rc in enumerate(roll_calls)]
     score = {(i, j): _pair_score(votes[i], roll_calls[j], contexts[j]) for i in range(n) for j in range(m)}
     best = [[0.0] * (m + 1) for _ in range(n + 1)]
@@ -282,6 +387,18 @@ def align_votes(votes, roll_calls, segments):
             i -= 1
         else:
             j -= 1
+
+    # Minutes aren't always in the order things happened (1/6/26 lists a
+    # consent item before the items it followed). Leftover votes may take
+    # leftover roll calls out of order, if the match is strong enough.
+    used = {rc for rc, _ in pairs.values()}
+    leftovers = sorted(((score[(i, j)], i, j) for i in range(n) if i not in pairs
+                        for j in range(m) if j not in used and score[(i, j)] >= OUT_OF_ORDER_MIN),
+                       reverse=True)
+    for sc, i, j in leftovers:
+        if i not in pairs and j not in used:
+            pairs[i] = (j, sc)
+            used.add(j)
     return pairs
 
 
@@ -326,7 +443,8 @@ def time_votes(votes, segments):
 def _docket_patterns(docket):
     """'26-177' as spoken in captions: '26177', '26-177', '26 177', 'item 177'."""
     year, num = docket.split('-')
-    return re.compile(rf'\b{year}\s?-?\s?{num}\b|\b(?:item|motion|number)\s+{num}\b', re.I)
+    # also "item 25, 002" — captions sometimes mangle the year but keep the number
+    return re.compile(rf'\b{year}\s?-?\s?{num}\b|\b(?:item|motion|number)\s+(?:\d{{2}},?\s+)?{num}\b', re.I)
 
 
 def _first_mention(segments, pattern, after, before=None):

@@ -87,6 +87,7 @@ python enrich_meetings.py --all
 | `parse_minutes.py` | Parses official votes (motion, mover, roll call) from a minutes PDF |
 | `match_agenda.py` | Places votes, agenda items and sections on the video timeline using the captions |
 | `enrich_meetings.py` | Adds agenda + official votes to ingested meetings, with video times (re-run to pick up late minutes) |
+| `backfill.py` | Ingests every full-committee meeting the CPS portal lists since a date (`--since 2026-01-01`) |
 | `officials.json` | School Committee roster (names, titles, terms, subcommittees, name as written in the minutes) |
 | `sync_officials.py` | Creates/updates Official pages in WordPress from `officials.json` |
 | `pipeline.db` | Local database tracking what's been ingested (created automatically) |

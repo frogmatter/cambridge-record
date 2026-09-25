@@ -158,6 +158,7 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
         'votes_timed':  sum(1 for v in votes or [] if v.get('start_seconds') is not None),
         'agenda_timed': sum(1 for a in agenda if a.get('start_seconds') is not None),
         'repaired':     repaired,
+        'date_mismatch': (wp_date, portal['date']) if wp_date and wp_date != portal['date'] else None,
     }
     log.info(f"  Show {show_id} → WP {wp_id}: {summary['portal']} | "
              f"{summary['agenda_items']} agenda items ({summary['agenda_timed']}/{len(agenda)} rows timed) | "

@@ -306,7 +306,7 @@
                 const href = links.get( nameKey( p.member ) );
                 return el( 'li', { class: `cast-row cast-row--${ p.vote.toLowerCase() }` },
                     href ? el( 'a', { href }, p.member ) : el( 'span', {}, p.member ),
-                    el( 'span', { class: 'cast-row__vote' }, VOTE_LABELS[ p.vote ] || p.vote )
+                    el( 'span', { class: 'cast-row__vote' }, p.vote === 'CANDIDATE' ? `For ${ p.candidate }` : VOTE_LABELS[ p.vote ] || p.vote )
                 );
             } ) )
         );
