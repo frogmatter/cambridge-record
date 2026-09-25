@@ -18,7 +18,7 @@
 ( function () {
     'use strict';
 
-    const { api, el, parseJson, fmtTime, highlight, debounce, status } = window.CR;
+    const { api, el, parseJson, fmtTime, highlight, debounce, status, voteLabel, tallyText } = window.CR;
 
     const root = document.getElementById( 'meeting' );
     if ( ! root ) return;
@@ -270,24 +270,54 @@
 
     // ── Agenda & votes panels ──────────────────────────────
 
-    /** A panel row: jumps the video when it has a time, plain text when it doesn't. */
-    function momentRow( seconds, content, cls = '' ) {
+    /**
+     * A panel row: jumps the video when it has a time, plain text when it
+     * doesn't. `after` (e.g. a roll call) sits below, outside the button.
+     */
+    function momentRow( seconds, content, cls = '', after = null ) {
         const hasTime = seconds !== null && seconds !== undefined && seconds !== '';
         return el( 'li', { class: cls },
             hasTime
                 ? el( 'button', { type: 'button', onclick: () => seek( seconds, { scroll: true } ) },
                     el( 'span', { class: 't' }, fmtTime( seconds ) ),
                     el( 'span', {}, content ) )
-                : el( 'div', { class: 'panel-row panel-row--untimed' }, el( 'span', {}, content ) )
+                : el( 'div', { class: 'panel-row panel-row--untimed' }, el( 'span', {}, content ) ),
+            after
+        );
+    }
+
+    // Official pages by surname, for linking roll-call names ("Member Harding")
+    const officialLinks = api( 'wp/v2/official', { per_page: 100, _fields: 'link,meta.minutes_name' } )
+        .then( ( list ) => new Map( list.map( ( o ) => [ nameKey( o.meta && o.meta.minutes_name ), o.link ] ) ) )
+        .catch( () => new Map() );
+
+    /** 'Vice Chair de Paula Santos' → 'depaulasantos' (same rule as the plugin's cr_name_key) */
+    function nameKey( name ) {
+        return String( name || '' ).replace( /^(Vice Chair|Chair|Mayor|Member|Memer)\s+/i, '' ).replace( /[^a-z]/gi, '' ).toLowerCase();
+    }
+
+    const VOTE_LABELS = { YEA: 'Yea', NAY: 'Nay', ABSENT: 'Absent', PRESENT: 'Present', ABSTAIN: 'Abstain', RECUSED: 'Recused' };
+
+    function rollCall( v, links ) {
+        if ( ! ( v.roll_call || [] ).length ) return null;
+        return el( 'details', { class: 'roll-call' },
+            el( 'summary', {}, 'Roll call' ),
+            el( 'ul', {}, v.roll_call.map( ( p ) => {
+                const href = links.get( nameKey( p.member ) );
+                return el( 'li', { class: `cast-row cast-row--${ p.vote.toLowerCase() }` },
+                    href ? el( 'a', { href }, p.member ) : el( 'span', {}, p.member ),
+                    el( 'span', { class: 'cast-row__vote' }, VOTE_LABELS[ p.vote ] || p.vote )
+                );
+            } ) )
         );
     }
 
     /** "5–2 · Nay: Member Harding, Member Hudson" */
     function tally( v ) {
-        if ( v.vote_for === null || v.vote_for === undefined ) {
+        if ( ! tallyText( v ) ) {
             return v.method === 'voice' ? 'voice vote' : '';
         }
-        let text = `${ v.vote_for }–${ v.vote_against }`;
+        let text = tallyText( v );
         if ( v.vote_abstain ) text += `, ${ v.vote_abstain } abstain`;
         if ( ( v.voters_against || [] ).length ) text += ` · Nay: ${ v.voters_against.join( ', ' ) }`;
         return text;
@@ -318,8 +348,9 @@
         document.getElementById( 'agenda-panel' ).hidden = false;
     }
 
-    function renderVotes( votes ) {
+    async function renderVotes( votes ) {
         if ( ! votes.length ) return;
+        const links = await officialLinks;
         const official = votes.find( ( v ) => v.source === 'minutes' );
         if ( official ) {
             document.getElementById( 'votes-heading' ).replaceChildren(
@@ -328,21 +359,10 @@
             );
         }
         const list = document.getElementById( 'votes-list' );
-        list.replaceChildren( ...votes.map( ( v ) => {
-            const items = v.items || [];
-            let label = String( v.motion_text || v.raw_context || 'Vote' );
-            label = label.charAt( 0 ).toUpperCase() + label.slice( 1 );
-            if ( items.length === 1 && items[ 0 ].title ) {
-                label = `${ items[ 0 ].docket ? `#${ items[ 0 ].docket } ` : '' }${ items[ 0 ].title }`;
-            } else if ( items.length > 1 ) {
-                label = `${ items.length } items: #${ items.map( ( i ) => i.docket ).join( ', #' ) }`;
-            }
-            if ( label.length > 160 ) label = `${ label.slice( 0, 157 ) }…`;
-            return momentRow( v.start_seconds, [
-                el( 'span', { class: 'agenda-title' }, label ),
-                official ? voteSummary( v ) : ( v.result && v.result !== 'unknown' ? voteSummary( v ) : null ),
-            ] );
-        } ) );
+        list.replaceChildren( ...votes.map( ( v ) => momentRow( v.start_seconds, [
+            el( 'span', { class: 'agenda-title' }, voteLabel( v ) ),
+            official ? voteSummary( v ) : ( v.result && v.result !== 'unknown' ? voteSummary( v ) : null ),
+        ], '', official ? rollCall( v, links ) : null ) ) );
         document.getElementById( 'votes-panel' ).hidden = false;
     }
 

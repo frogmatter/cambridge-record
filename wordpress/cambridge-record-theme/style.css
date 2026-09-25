@@ -2,7 +2,7 @@
 Theme Name:   Cambridge Record
 Theme URI:    https://mediatechaction.com
 Description:  Public theme for the Cambridge Record civic meeting archive. Meeting list, transcript search, and meeting pages with video + transcript. Reads data from the Cambridge Record plugin's REST API. Requires the Cambridge Record plugin.
-Version:      0.3.0
+Version:      0.4.0
 Author:       Matt / Cambridge Public Schools
 License:      CC BY-SA 4.0
 Text Domain:  cambridge-record
@@ -441,3 +441,73 @@ select {
 .entry-content ol, .entry-content ul { padding-left: 1.25rem; }
 .entry-content li { margin-bottom: .5rem; }
 .entry + .entry { margin-top: 3rem; padding-top: 3rem; border-top: 1px solid var(--rule); }
+
+
+/* ═══════════════════════════════════════════════════════
+   10. OFFICIALS
+   ═══════════════════════════════════════════════════════ */
+
+.official-row {
+    display: grid; grid-template-columns: 7.5rem 1fr; gap: .15rem 1.5rem;
+    padding: 1rem 0; border-top: 1px solid var(--rule); position: relative;
+}
+.official-row:hover { background: linear-gradient(90deg, transparent, var(--paper-2) 15%, var(--paper-2) 85%, transparent); }
+.official-row__title { font: 600 .8125rem/1.6 var(--sans); color: var(--ink-3); text-transform: uppercase; letter-spacing: .06em; grid-row: 1 / span 2; }
+.official-row__name { font: 600 1.25rem/1.3 var(--serif); margin: 0; }
+.official-row__name a { text-decoration: none; }
+.official-row__name a::after { content: ""; position: absolute; inset: 0; }
+.official-row__meta { font-size: .9375rem; color: var(--ink-2); }
+.official-list { border-bottom: 1px solid var(--rule); }
+.official-group { font-size: 1.25rem; margin: 2.5rem 0 .5rem; }
+@media (max-width: 40rem) {
+    .official-row { grid-template-columns: 1fr; }
+    .official-row__title { grid-row: auto; }
+}
+
+.official-head { margin-bottom: 2rem; }
+.official-head .eyebrow a { text-decoration: none; color: inherit; }
+.official-head .meta-line { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; color: var(--ink-2); }
+.subcommittees { list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-wrap: wrap; gap: .4rem; }
+.subcommittees li { font-size: .8125rem; border: 1px solid var(--rule); border-radius: 999px; padding: .2rem .65rem; }
+
+.check { display: inline-flex; align-items: center; gap: .35rem; font-size: .875rem; color: var(--ink-2); cursor: pointer; }
+.record-summary { color: var(--ink-2); margin: .75rem 0 0; }
+
+.record-list { list-style: none; margin: 0; padding: 0; }
+.record-row {
+    display: grid; grid-template-columns: 4.75rem 1fr auto; gap: 1rem; align-items: baseline;
+    padding: .75rem .25rem; border-bottom: 1px solid var(--rule);
+}
+.record-row.is-dissent { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.record-row__title { font-family: var(--serif); font-size: 1.0625rem; text-decoration: none; }
+.record-row__title:hover { text-decoration: underline; }
+.record-row__time { font: .8125rem/1.6 var(--mono); color: var(--accent); text-decoration: none; white-space: nowrap; }
+.dissent-note { color: var(--accent); font-weight: 600; }
+@media (max-width: 40rem) {
+    .record-row { grid-template-columns: 4.25rem 1fr; }
+    .record-row__time { grid-column: 2; }
+}
+
+/* A member's vote: Yea / Nay / Absent */
+.cast {
+    font: 700 .6875rem/1 var(--sans); letter-spacing: .06em; text-transform: uppercase;
+    padding: .35rem .4rem; border-radius: 3px; text-align: center;
+    border: 1px solid var(--rule); color: var(--ink-2);
+}
+.cast--yea { border-color: var(--ink-2); color: var(--ink); }
+.cast--nay { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.cast--absent, .cast--present { border-style: dashed; color: var(--ink-3); }
+
+/* Roll call under a vote on the meeting page */
+.roll-call { padding: 0 .25rem .6rem; font-size: .8125rem; }
+.roll-call summary { cursor: pointer; color: var(--ink-3); width: fit-content; }
+.roll-call summary:hover { color: var(--ink); }
+.panel .roll-call ul { margin-top: .35rem; }
+.panel .roll-call li.cast-row {
+    display: flex; justify-content: space-between; gap: 1rem;
+    border-top: 0; padding: .15rem 0;
+}
+.cast-row a { text-decoration-color: var(--rule); }
+.cast-row__vote { font-weight: 600; }
+.cast-row--nay .cast-row__vote { color: var(--accent); }
+.cast-row--absent, .cast-row--present { color: var(--ink-3); }

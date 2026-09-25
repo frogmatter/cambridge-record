@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_THEME_VERSION', '0.3.0' );
+define( 'CR_THEME_VERSION', '0.4.0' );
 
 
 // ═══════════════════════════════════════════════════════
@@ -45,11 +45,16 @@ add_action( 'wp_enqueue_scripts', function () {
         'nonce'    => is_user_logged_in() ? wp_create_nonce( 'wp_rest' ) : '',
         'homeUrl'  => esc_url_raw( home_url( '/' ) ),
         'siteName' => get_bloginfo( 'name' ),
+        'officialsUrl' => esc_url_raw( (string) get_post_type_archive_link( 'cr_official' ) ),
     ] ) . ';', 'before' );
 
     $page_script = null;
     if ( is_singular( 'cr_meeting' ) ) {
         $page_script = 'meeting';
+    } elseif ( is_singular( 'cr_official' ) ) {
+        $page_script = 'official';
+    } elseif ( is_post_type_archive( 'cr_official' ) ) {
+        $page_script = 'officials';
     } elseif ( cr_theme_is_search_view() ) {
         $page_script = 'search';
     } elseif ( is_front_page() || is_post_type_archive( 'cr_meeting' ) ) {
@@ -144,6 +149,9 @@ function cr_theme_search_form( $size = '' ) {
 function cr_theme_default_menu() {
     echo '<ul>';
     printf( '<li><a href="%s">Meetings</a></li>', esc_url( home_url( '/' ) ) );
+    if ( get_post_type_archive_link( 'cr_official' ) ) {
+        printf( '<li><a href="%s">Officials</a></li>', esc_url( get_post_type_archive_link( 'cr_official' ) ) );
+    }
     printf( '<li><a href="%s">Search</a></li>', esc_url( home_url( '/?s=' ) ) );
     echo '</ul>';
 }

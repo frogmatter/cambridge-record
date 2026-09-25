@@ -122,6 +122,24 @@
         return url.toString();
     }
 
+    /** What a vote was about: its agenda item's title, "N items: #…", or the motion text. */
+    function voteLabel( v, max = 160 ) {
+        const items = v.items || [];
+        let label = String( v.motion_text || v.raw_context || 'Vote' );
+        label = label.charAt( 0 ).toUpperCase() + label.slice( 1 );
+        if ( items.length === 1 && items[ 0 ].title ) {
+            label = `${ items[ 0 ].docket ? `#${ items[ 0 ].docket } ` : '' }${ items[ 0 ].title }`;
+        } else if ( items.length > 1 ) {
+            label = `${ items.length } items: #${ items.map( ( i ) => i.docket ).join( ', #' ) }`;
+        }
+        return label.length > max ? `${ label.slice( 0, max - 3 ) }…` : label;
+    }
+
+    /** "5–2" (or '' when the minutes recorded no tally) */
+    function tallyText( v ) {
+        return v.vote_for === null || v.vote_for === undefined ? '' : `${ v.vote_for }–${ v.vote_against }`;
+    }
+
     function status( container, message, isError = false ) {
         container.replaceChildren( el( 'p', { class: isError ? 'status status--error' : 'status' }, message ) );
     }
@@ -136,6 +154,6 @@
 
     window.CR = {
         config, api, parseJson, fmtTime, parseDate, fmtDate, schoolYear,
-        el, append, escapeRegExp, highlight, momentUrl, status, debounce,
+        el, append, escapeRegExp, highlight, momentUrl, status, debounce, voteLabel, tallyText,
     };
 } )();

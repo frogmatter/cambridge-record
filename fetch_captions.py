@@ -91,7 +91,9 @@ def _fetch_segment(args):
     try:
         r = session.get(url, timeout=15)
         r.raise_for_status()
-        cues = _parse_vtt_segment(r.text, segment_number)
+        # WebVTT is always UTF-8, but the CDN sends no charset, so requests
+        # would guess ISO-8859-1 and garble every curly apostrophe ("Iâ€™ll").
+        cues = _parse_vtt_segment(r.content.decode('utf-8', errors='replace'), segment_number)
         return segment_number, cues
     except Exception as e:
         log.warning(f'  Segment {segment_number:05d} failed: {e}')

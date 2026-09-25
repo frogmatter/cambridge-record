@@ -1,0 +1,113 @@
+{
+  "_about": "Cambridge School Committee roster. Source of truth for Official posts in WordPress — edit here, then run: python sync_officials.py. minutes_name is the surname exactly as the official minutes write it in roll calls; it links each official to their votes. Elected members serve Jan 2026 – Dec 2027 (elected Nov 2025). Student member terms not yet recorded.",
+  "officials": [
+    {
+      "full_name": "David Weinstein",
+      "official_title": "Chair",
+      "minutes_name": "Weinstein",
+      "is_voting_member": true,
+      "term_start": "2026-01-01",
+      "term_end": "2027-12-31",
+      "subcommittees": [
+        {"name": "Governance", "role": "Member"},
+        {"name": "Budget (Committee of the Whole)", "role": "Co-Chair"}
+      ]
+    },
+    {
+      "full_name": "Caitlin Dube",
+      "official_title": "Vice Chair",
+      "minutes_name": "Dube",
+      "is_voting_member": true,
+      "term_start": "2026-01-01",
+      "term_end": "2027-12-31",
+      "subcommittees": [
+        {"name": "Curriculum and Achievement", "role": "Co-Chair"},
+        {"name": "School Climate", "role": "Co-Chair"},
+        {"name": "Special Education/Student Services", "role": "Member"}
+      ]
+    },
+    {
+      "full_name": "Sumbul Siddiqui",
+      "official_title": "Mayor",
+      "minutes_name": "Siddiqui",
+      "is_voting_member": true,
+      "term_start": "2026-01-01",
+      "term_end": "2027-12-31",
+      "subcommittees": [
+        {"name": "Buildings and Grounds", "role": "Member"},
+        {"name": "Governance", "role": "Chair"},
+        {"name": "School Climate", "role": "Co-Chair"},
+        {"name": "Budget (Committee of the Whole)", "role": "Co-Chair"}
+      ]
+    },
+    {
+      "full_name": "Luisa de Paula Santos",
+      "official_title": "Member",
+      "minutes_name": "de Paula Santos",
+      "is_voting_member": true,
+      "term_start": "2026-01-01",
+      "term_end": "2027-12-31",
+      "subcommittees": [
+        {"name": "Communications and Community Relations", "role": "Co-Chair"},
+        {"name": "School Climate", "role": "Member"},
+        {"name": "Special Education/Student Services", "role": "Chair"}
+      ]
+    },
+    {
+      "full_name": "Richard Harding, Jr.",
+      "official_title": "Member",
+      "minutes_name": "Harding",
+      "is_voting_member": true,
+      "term_start": "2026-01-01",
+      "term_end": "2027-12-31",
+      "subcommittees": [
+        {"name": "Communications and Community Relations", "role": "Member"},
+        {"name": "Curriculum and Achievement", "role": "Member"},
+        {"name": "Special Education/Student Services", "role": "Member"}
+      ]
+    },
+    {
+      "full_name": "Elizabeth Hudson",
+      "official_title": "Member",
+      "minutes_name": "Hudson",
+      "is_voting_member": true,
+      "term_start": "2026-01-01",
+      "term_end": "2027-12-31",
+      "subcommittees": [
+        {"name": "Buildings and Grounds", "role": "Member"},
+        {"name": "Curriculum and Achievement", "role": "Co-Chair"}
+      ]
+    },
+    {
+      "full_name": "Arjun Jaikumar",
+      "official_title": "Member",
+      "minutes_name": "Jaikumar",
+      "is_voting_member": true,
+      "term_start": "2026-01-01",
+      "term_end": "2027-12-31",
+      "subcommittees": [
+        {"name": "Buildings and Grounds", "role": "Chair"},
+        {"name": "Communications and Community Relations", "role": "Co-Chair"},
+        {"name": "Governance", "role": "Member"}
+      ]
+    },
+    {
+      "full_name": "Immogene Goode",
+      "official_title": "Student Member",
+      "minutes_name": "Goode",
+      "is_voting_member": false,
+      "term_start": "",
+      "term_end": "",
+      "subcommittees": []
+    },
+    {
+      "full_name": "Maia Shen",
+      "official_title": "Student Member",
+      "minutes_name": "Shen",
+      "is_voting_member": false,
+      "term_start": "",
+      "term_end": "",
+      "subcommittees": []
+    }
+  ]
+}

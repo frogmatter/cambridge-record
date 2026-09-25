@@ -6,7 +6,9 @@ For each ingested Cablecast show:
   2. Scrape the agenda page → agenda_json
   3. If minutes are posted, parse the votes → votes_json
      (replacing the caption-based guesses from ingest)
-  4. Update the WordPress meeting in place
+  4. Place votes, agenda items and sections on the video timeline by
+     matching against the captions (match_agenda.py)
+  5. Update the WordPress meeting in place
 
 Minutes are posted weeks after a meeting, so run this again later to pick
 them up. It is safe to re-run: each run rewrites agenda_json/votes_json.
@@ -24,8 +26,12 @@ import logging
 import sqlite3
 from pathlib import Path
 
+from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
+
 import requests
 from dotenv import dotenv_values
+
+from match_agenda import fix_mojibake, time_agenda, time_votes
 
 from parse_minutes import docket_titles, minutes_text, parse_votes
 from scrape_agenda import get_portal_meetings, scrape_agenda_items
@@ -47,6 +53,14 @@ def ingested_meetings(conn, show_id=None):
         sql += ' AND cablecast_show_id = ?'
         args = (show_id,)
     return conn.execute(sql + ' ORDER BY show_date', args).fetchall()
+
+
+def seek_url(embed_url, seconds):
+    """Cablecast embed URL that starts at `seconds` (the embed reads ?seek=, not &t=)."""
+    parts = urlsplit(embed_url)
+    query = [(k, v) for k, v in parse_qsl(parts.query) if k not in ('t', 'seek')]
+    query.append(('seek', str(int(seconds))))
+    return urlunsplit(parts._replace(query=urlencode(query)))
 
 
 def link_votes_and_agenda(agenda, votes, minutes_titles):
@@ -83,7 +97,7 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
 
     current = requests.get(
         f'{WP_BASE}/meeting/{wp_id}', auth=WP_AUTH, timeout=30,
-        params={'context': 'edit', '_fields': 'id,title,meta.meeting_date'},
+        params={'context': 'edit', '_fields': 'id,title,meta.meeting_date,meta.cablecast_embed_url,meta.segments_json'},
     )
     current.raise_for_status()
     current = current.json()
@@ -102,6 +116,24 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
 
     link_votes_and_agenda(agenda, votes or [], minutes_titles)
 
+    # Transcript: repair apostrophes garbled at ingest (before the
+    # fetch_captions.py decoding fix), then place things on the timeline.
+    segments = json.loads(current['meta'].get('segments_json') or '[]')
+    repaired = 0
+    for seg in segments:
+        fixed = fix_mojibake(seg['text'])
+        if fixed != seg['text']:
+            seg['text'], repaired = fixed, repaired + 1
+
+    if segments:
+        if votes:
+            time_votes(votes, segments)
+        time_agenda(agenda, votes or [], segments)
+        embed = current['meta'].get('cablecast_embed_url')
+        for item in agenda + (votes or []):
+            if item.get('start_seconds') is not None and embed:
+                item['deep_link_url'] = seek_url(embed, item['start_seconds'])
+
     meta = {
         'agenda_json':       json.dumps(agenda),
         'agenda_item_count': sum(1 for a in agenda if a['item_type'] != 'section'),
@@ -111,6 +143,10 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
     if votes is not None:
         meta['votes_json'] = json.dumps(votes)
         meta['vote_count'] = len(votes)
+    payload = {'meta': meta}
+    if repaired:
+        meta['segments_json'] = json.dumps(segments)
+        payload['content'] = ' '.join(s['text'] for s in segments)   # what WordPress search indexes
 
     summary = {
         'show_id':      show_id,
@@ -119,16 +155,24 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
         'portal':       f"{portal['date']} {portal['meeting_type']}",
         'agenda_items': meta['agenda_item_count'],
         'votes':        len(votes) if votes is not None else None,
+        'votes_timed':  sum(1 for v in votes or [] if v.get('start_seconds') is not None),
+        'agenda_timed': sum(1 for a in agenda if a.get('start_seconds') is not None),
+        'repaired':     repaired,
     }
     log.info(f"  Show {show_id} → WP {wp_id}: {summary['portal']} | "
-             f"{summary['agenda_items']} agenda items | "
-             + (f"{len(votes)} votes from minutes" if votes is not None else 'minutes not posted yet (caption vote flags kept)'))
+             f"{summary['agenda_items']} agenda items ({summary['agenda_timed']}/{len(agenda)} rows timed) | "
+             + (f"{len(votes)} votes from minutes ({summary['votes_timed']} placed in video)" if votes is not None
+                else 'minutes not posted yet (caption vote flags kept)')
+             + (f" | repaired {repaired} garbled transcript lines" if repaired else ''))
+    for v in votes or []:
+        if v.get('start_seconds') is None:
+            log.warning(f"    vote not found in captions: {v['motion_text'][:80]}")
 
     if dry_run:
         log.info('  [DRY RUN] Not writing to WordPress')
         return summary
 
-    r = requests.post(f'{WP_BASE}/meeting/{wp_id}', json={'meta': meta}, auth=WP_AUTH, timeout=60)
+    r = requests.post(f'{WP_BASE}/meeting/{wp_id}', json=payload, auth=WP_AUTH, timeout=120)
     r.raise_for_status()
     return summary
 

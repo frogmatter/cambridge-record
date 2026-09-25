@@ -5,13 +5,15 @@
  *              Single post per meeting — segments, agenda items, and votes
  *              stored as JSON in post meta. Designed for shared hosting.
  *              No plugin dependencies. REST API ready for the local pipeline.
- * Version:     0.2.1
+ * Version:     0.3.0
  * Author:      Matt / Cambridge Public Schools
  * License:     CC BY-SA 4.0
  * Site:        mediatechaction.com
  */
 
 defined( 'ABSPATH' ) || exit;
+
+define( 'CR_PLUGIN_VERSION', '0.3.0' );
 
 
 // ═══════════════════════════════════════════════════════
@@ -52,6 +54,7 @@ function cr_register_post_types() {
         'rest_base'          => 'official',
         'supports'           => [ 'title', 'thumbnail', 'custom-fields' ],
         'rewrite'            => [ 'slug' => 'official' ],
+        'has_archive'        => 'officials',
         'menu_icon'          => 'dashicons-groups',
         'menu_position'      => 6,
     ] );
@@ -143,11 +146,13 @@ function cr_register_meta_fields() {
 
     // ── cr_official ───────────────────────────────────
     $official_fields = [
-        'full_name'         => 'string',
-        'official_title'    => 'string',   // 'Chair' | 'Member' | 'Superintendent'
-        'term_start'        => 'string',   // YYYY-MM-DD
-        'term_end'          => 'string',   // YYYY-MM-DD or empty if current
-        'is_voting_member'  => 'boolean',
+        'full_name'          => 'string',
+        'official_title'     => 'string',   // 'Chair' | 'Vice Chair' | 'Mayor' | 'Member' | 'Student Member'
+        'term_start'         => 'string',   // YYYY-MM-DD
+        'term_end'           => 'string',   // YYYY-MM-DD or empty if current
+        'is_voting_member'   => 'boolean',
+        'minutes_name'       => 'string',   // surname as the minutes write it: 'Weinstein', 'de Paula Santos'
+        'subcommittees_json' => 'string',   // [{name, role}] — role 'Chair' | 'Co-Chair' | 'Member'
     ];
     cr_register_meta_group( 'cr_official', $official_fields );
 
@@ -214,6 +219,19 @@ function cr_register_rest_routes() {
         'methods'             => 'GET',
         'callback'            => 'cr_meeting_index',
         'permission_callback' => '__return_true',
+    ] );
+
+    // ── Officials + voting records ────────────────────
+    register_rest_route( 'cambridge-record/v1', '/officials', [
+        'methods'             => 'GET',
+        'callback'            => 'cr_officials_index',
+        'permission_callback' => '__return_true',
+    ] );
+    register_rest_route( 'cambridge-record/v1', '/officials/(?P<id>\d+)', [
+        'methods'             => 'GET',
+        'callback'            => 'cr_official_record',
+        'permission_callback' => '__return_true',
+        'args'                => [ 'id' => [ 'sanitize_callback' => 'absint' ] ],
     ] );
 }
 
@@ -319,6 +337,175 @@ function cr_meeting_index( WP_REST_Request $request ) {
 
 
 // ═══════════════════════════════════════════════════════
+// 3b. OFFICIALS & VOTING RECORDS
+//     Votes live in each meeting's votes_json (parsed from
+//     the official minutes by the pipeline). Each roll-call
+//     entry names a member as the minutes do — "Member de
+//     Paula Santos", "Vice Chair Dube" — so an official is
+//     matched on their minutes_name (surname), ignoring the
+//     title, case and spacing. Titles change; surnames don't.
+// ═══════════════════════════════════════════════════════
+
+/** 'Vice Chair de Paula Santos' / 'DePaula Santos' → 'depaulasantos' */
+function cr_name_key( $name ) {
+    $name = preg_replace( '/^(Vice Chair|Chair|Mayor|Member|Memer)\s+/i', '', trim( (string) $name ) );
+    return strtolower( preg_replace( '/[^a-z]/i', '', $name ) );
+}
+
+/** Results that don't decide an agenda item (closing public comment, adjourning…). */
+function cr_is_procedural_vote( array $vote ) {
+    if ( ! empty( $vote['dockets'] ) || ! empty( $vote['items'] ) ) {
+        return false;
+    }
+    return in_array( $vote['result'] ?? '', [
+        'closed', 'reopened', 'adjourned', 'extended', 'rules suspended',
+        'brought forward', 'executive session', 'approved', 'accepted',
+    ], true );
+}
+
+/** Published officials, ordered Chair, Vice Chair, Mayor, members A–Z, then non-voting. */
+function cr_get_officials() {
+    $posts = get_posts( [
+        'post_type'      => 'cr_official',
+        'post_status'    => 'publish',
+        'posts_per_page' => -1,
+    ] );
+    $rank = [ 'Chair' => 0, 'Vice Chair' => 1, 'Mayor' => 2, 'Member' => 3 ];
+
+    $officials = array_map( function ( $p ) use ( $rank ) {
+        $meta = get_post_meta( $p->ID );
+        $title = $meta['official_title'][0] ?? 'Member';
+        return [
+            'id'            => $p->ID,
+            'name'          => get_the_title( $p->ID ),
+            'full_name'     => $meta['full_name'][0] ?? get_the_title( $p->ID ),
+            'title'         => $title,
+            'minutes_name'  => $meta['minutes_name'][0] ?? '',
+            'is_voting'     => ! empty( $meta['is_voting_member'][0] ),
+            'term_start'    => $meta['term_start'][0] ?? '',
+            'term_end'      => $meta['term_end'][0] ?? '',
+            'subcommittees' => json_decode( $meta['subcommittees_json'][0] ?? '[]', true ) ?: [],
+            'permalink'     => get_permalink( $p->ID ),
+            '_rank'         => ( empty( $meta['is_voting_member'][0] ) ? 10 : 0 ) + ( $rank[ $title ] ?? 5 ),
+            '_sort'         => strtolower( $meta['minutes_name'][0] ?? get_the_title( $p->ID ) ),
+        ];
+    }, $posts );
+
+    usort( $officials, fn( $a, $b ) => [ $a['_rank'], $a['_sort'] ] <=> [ $b['_rank'], $b['_sort'] ] );
+    return array_map( function ( $o ) { unset( $o['_rank'], $o['_sort'] ); return $o; }, $officials );
+}
+
+/**
+ * Every roll-call vote cast by the member with this minutes_name, across
+ * published meetings (newest first), plus summary counts.
+ */
+function cr_voting_record( $minutes_name ) {
+    $key = cr_name_key( $minutes_name );
+    $record = [];
+    $summary = [ 'votes' => 0, 'yea' => 0, 'nay' => 0, 'absent' => 0, 'present' => 0, 'abstain' => 0, 'dissents' => 0, 'meetings' => 0 ];
+    if ( ! $key ) {
+        return [ $record, $summary ];
+    }
+
+    $meetings = get_posts( [
+        'post_type'      => 'cr_meeting',
+        'post_status'    => 'publish',
+        'posts_per_page' => -1,
+        'orderby'        => 'meta_value',
+        'meta_key'       => 'meeting_date',
+        'order'          => 'DESC',
+    ] );
+
+    foreach ( $meetings as $m ) {
+        $votes = json_decode( get_post_meta( $m->ID, 'votes_json', true ) ?: '[]', true );
+        if ( ! is_array( $votes ) ) {
+            continue;
+        }
+        $in_meeting = false;
+        foreach ( $votes as $v ) {
+            if ( ( $v['source'] ?? '' ) !== 'minutes' ) {
+                continue;   // caption-flagged guesses have no per-member votes
+            }
+            $cast = null;
+            foreach ( $v['roll_call'] ?? [] as $entry ) {
+                if ( cr_name_key( $entry['member'] ?? '' ) === $key ) {
+                    $cast = $entry['vote'];
+                    break;
+                }
+            }
+            if ( $cast === null ) {
+                continue;
+            }
+            $in_meeting = true;
+
+            // Dissent: voted against the outcome (nay on a passed motion, yea on a failed one)
+            $passed  = $v['passed'] ?? true;
+            $dissent = ( $cast === 'NAY' && $passed ) || ( $cast === 'YEA' && ! $passed );
+
+            $summary['votes']++;
+            $bucket = strtolower( $cast === 'RECUSED' ? 'abstain' : $cast );
+            if ( isset( $summary[ $bucket ] ) ) {
+                $summary[ $bucket ]++;
+            }
+            if ( $dissent ) {
+                $summary['dissents']++;
+            }
+
+            $permalink = get_permalink( $m->ID );
+            $record[] = [
+                'meeting_id'    => $m->ID,
+                'meeting_title' => get_the_title( $m->ID ),
+                'meeting_date'  => get_post_meta( $m->ID, 'meeting_date', true ),
+                'meeting_url'   => $permalink,
+                'vote_index'    => $v['index'] ?? null,
+                'motion_text'   => $v['motion_text'] ?? '',
+                'items'         => $v['items'] ?? [],
+                'section_title' => $v['section_title'] ?? null,
+                'result'        => $v['result'] ?? '',
+                'passed'        => $passed,
+                'vote_for'      => $v['vote_for'] ?? null,
+                'vote_against'  => $v['vote_against'] ?? null,
+                'member_vote'   => $cast,
+                'dissent'       => $dissent,
+                'procedural'    => cr_is_procedural_vote( $v ),
+                'start_seconds' => $v['start_seconds'] ?? null,
+                'moment_url'    => isset( $v['start_seconds'] )
+                    ? $permalink . '#t=' . (int) $v['start_seconds']
+                    : $permalink,
+            ];
+        }
+        if ( $in_meeting ) {
+            $summary['meetings']++;
+        }
+    }
+    return [ $record, $summary ];
+}
+
+function cr_officials_index( WP_REST_Request $request ) {
+    $officials = array_map( function ( $o ) {
+        [ , $summary ] = cr_voting_record( $o['minutes_name'] );
+        return $o + [ 'summary' => $summary ];
+    }, cr_get_officials() );
+    return rest_ensure_response( [ 'officials' => $officials ] );
+}
+
+function cr_official_record( WP_REST_Request $request ) {
+    $id = (int) $request['id'];
+    $official = null;
+    foreach ( cr_get_officials() as $o ) {
+        if ( $o['id'] === $id ) {
+            $official = $o;
+        }
+    }
+    if ( ! $official ) {
+        return new WP_Error( 'cr_not_found', 'Official not found', [ 'status' => 404 ] );
+    }
+    [ $record, $summary ] = cr_voting_record( $official['minutes_name'] );
+    return rest_ensure_response( $official + [ 'summary' => $summary, 'votes' => $record ] );
+}
+
+
+// ═══════════════════════════════════════════════════════
 // 4. INCREASE REST API PAGE SIZE FOR MEETINGS
 //    The pipeline may need to fetch all meetings at once.
 // ═══════════════════════════════════════════════════════
@@ -405,8 +592,49 @@ add_filter( 'manage_edit-cr_meeting_sortable_columns', function( $cols ) {
 
 
 // ═══════════════════════════════════════════════════════
-// 6. ACTIVATION / DEACTIVATION
+// 5b. OFFICIALS ADMIN COLUMNS
 // ═══════════════════════════════════════════════════════
+
+add_filter( 'manage_cr_official_posts_columns', function( $cols ) {
+    return [
+        'cb'             => $cols['cb'],
+        'title'          => 'Official',
+        'official_title' => 'Title',
+        'minutes_name'   => 'Name in minutes',
+        'voting'         => 'Voting',
+        'term'           => 'Term',
+    ];
+} );
+
+add_action( 'manage_cr_official_posts_custom_column', function( $col, $post_id ) {
+    switch ( $col ) {
+        case 'official_title':
+        case 'minutes_name':
+            echo esc_html( get_post_meta( $post_id, $col, true ) );
+            break;
+        case 'voting':
+            echo get_post_meta( $post_id, 'is_voting_member', true ) ? 'Yes' : 'No';
+            break;
+        case 'term':
+            echo esc_html( trim( get_post_meta( $post_id, 'term_start', true ) . ' – ' . get_post_meta( $post_id, 'term_end', true ), ' –' ) );
+            break;
+    }
+}, 10, 2 );
+
+
+// ═══════════════════════════════════════════════════════
+// 6. ACTIVATION / DEACTIVATION / UPDATE
+//    Uploading a new plugin version doesn't re-run the
+//    activation hook, so flush rewrite rules once when the
+//    version changes (new URLs like /officials/).
+// ═══════════════════════════════════════════════════════
+
+add_action( 'init', function () {
+    if ( get_option( 'cr_plugin_version' ) !== CR_PLUGIN_VERSION ) {
+        flush_rewrite_rules();
+        update_option( 'cr_plugin_version', CR_PLUGIN_VERSION );
+    }
+}, 20 );
 
 register_activation_hook( __FILE__, function () {
     cr_register_post_types();
