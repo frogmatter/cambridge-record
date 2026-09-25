@@ -63,6 +63,11 @@ python ingest_cablecast.py --limit 1
 python ingest_cablecast.py
 ```
 
+**Reviewing times:** WP admin → Meetings → **Review times** lists votes and
+agenda items the matching couldn't place (or placed with low confidence),
+with the video and transcript side by side. Decisions are saved on the
+meeting and re-applied every time `enrich_meetings.py` runs.
+
 Ingest also pulls the agenda (and votes, if minutes are posted) from the
 CPS portal. Minutes usually appear weeks later — pick them up with:
 

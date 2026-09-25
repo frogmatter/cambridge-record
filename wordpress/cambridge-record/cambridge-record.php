@@ -5,7 +5,7 @@
  *              Single post per meeting — segments, agenda items, and votes
  *              stored as JSON in post meta. Designed for shared hosting.
  *              No plugin dependencies. REST API ready for the local pipeline.
- * Version:     0.3.1
+ * Version:     0.4.0
  * Author:      Matt / Cambridge Public Schools
  * License:     CC BY-SA 4.0
  * Site:        mediatechaction.com
@@ -13,7 +13,9 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_PLUGIN_VERSION', '0.3.1' );
+define( 'CR_PLUGIN_VERSION', '0.4.0' );
+
+require_once __DIR__ . '/includes/review.php';
 
 
 // ═══════════════════════════════════════════════════════
@@ -141,6 +143,11 @@ function cr_register_meta_fields() {
         //            vote_abstain, voters_for, voters_against,
         //            raw_context}
         'votes_json'         => 'string',
+
+        // People's decisions from Meetings → Review times, keyed by item key:
+        // {votes: {key: {status, start_seconds, by, at}}, agenda: {…}}.
+        // enrich_meetings.py re-applies these after every run.
+        'review_json'        => 'string',
     ];
     cr_register_meta_group( 'cr_meeting', $meeting_json );
 

@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import hashlib
 import json
 import logging
 import sqlite3
@@ -63,6 +64,47 @@ def seek_url(embed_url, seconds):
     return urlunsplit(parts._replace(query=urlencode(query)))
 
 
+def _digest(text):
+    return hashlib.sha1(str(text).encode('utf-8')).hexdigest()[:8]
+
+
+def add_review_keys(agenda, votes):
+    """
+    Stable keys that Meetings → Review times files people's decisions under.
+    They depend only on what the minutes and agenda say, so they survive
+    re-runs as long as those documents don't change.
+    """
+    for v in votes:
+        v['key'] = f"v{v['index']}-{_digest(v['motion_text'])}"
+    for a in agenda:
+        a['key'] = f"a-{a['docket']}" if a.get('docket') else f"a-{a.get('item_number') or 'x'}-{_digest(a['title'])}"
+
+
+def apply_review(items, decisions, embed):
+    """
+    Re-apply people's review decisions (same rule as cr_apply_decision() in
+    the plugin): a confirmed or corrected time wins over the pipeline's
+    match; 'cleared' means the item isn't in the video.
+    """
+    applied = 0
+    for item in items:
+        d = decisions.get(item.get('key'))
+        if not d:
+            continue
+        seconds = d.get('start_seconds')
+        item.update({
+            'start_seconds': seconds,
+            'deep_link_url': seek_url(embed, seconds) if (embed and seconds is not None) else None,
+            'matched':       seconds is not None,
+            'reviewed':      d['status'],
+        })
+        if d['status'] != 'confirmed':
+            item['match_method'] = 'reviewed_not_in_video' if d['status'] == 'cleared' else 'reviewed'
+            item['match_score'] = 0 if seconds is None else 1
+        applied += 1
+    return applied
+
+
 def link_votes_and_agenda(agenda, votes, minutes_titles):
     """
     Cross-reference by docket number: each vote gets `items` [{docket, title}],
@@ -97,7 +139,7 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
 
     current = requests.get(
         f'{WP_BASE}/meeting/{wp_id}', auth=WP_AUTH, timeout=30,
-        params={'context': 'edit', '_fields': 'id,title,meta.meeting_date,meta.cablecast_embed_url,meta.segments_json'},
+        params={'context': 'edit', '_fields': 'id,title,meta.meeting_date,meta.cablecast_embed_url,meta.segments_json,meta.review_json'},
     )
     current.raise_for_status()
     current = current.json()
@@ -125,14 +167,19 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
         if fixed != seg['text']:
             seg['text'], repaired = fixed, repaired + 1
 
+    embed = current['meta'].get('cablecast_embed_url')
     if segments:
         if votes:
             time_votes(votes, segments)
         time_agenda(agenda, votes or [], segments)
-        embed = current['meta'].get('cablecast_embed_url')
         for item in agenda + (votes or []):
             if item.get('start_seconds') is not None and embed:
                 item['deep_link_url'] = seek_url(embed, item['start_seconds'])
+
+    # People's decisions from Meetings → Review times win over the matching
+    add_review_keys(agenda, votes or [])
+    review = json.loads(current['meta'].get('review_json') or '{}')
+    reviewed = apply_review(votes or [], review.get('votes', {}), embed) + apply_review(agenda, review.get('agenda', {}), embed)
 
     meta = {
         'agenda_json':       json.dumps(agenda),
@@ -158,15 +205,17 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
         'votes_timed':  sum(1 for v in votes or [] if v.get('start_seconds') is not None),
         'agenda_timed': sum(1 for a in agenda if a.get('start_seconds') is not None),
         'repaired':     repaired,
+        'reviewed':     reviewed,
         'date_mismatch': (wp_date, portal['date']) if wp_date and wp_date != portal['date'] else None,
     }
     log.info(f"  Show {show_id} → WP {wp_id}: {summary['portal']} | "
              f"{summary['agenda_items']} agenda items ({summary['agenda_timed']}/{len(agenda)} rows timed) | "
              + (f"{len(votes)} votes from minutes ({summary['votes_timed']} placed in video)" if votes is not None
                 else 'minutes not posted yet (caption vote flags kept)')
-             + (f" | repaired {repaired} garbled transcript lines" if repaired else ''))
+             + (f" | repaired {repaired} garbled transcript lines" if repaired else '')
+             + (f" | kept {reviewed} reviewed time(s)" if reviewed else ''))
     for v in votes or []:
-        if v.get('start_seconds') is None:
+        if v.get('start_seconds') is None and not v.get('reviewed'):
             log.warning(f"    vote not found in captions: {v['motion_text'][:80]}")
 
     if dry_run:

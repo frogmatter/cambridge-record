@@ -1,0 +1,27 @@
+.cr-review__toolbar { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; margin: 1rem 0; }
+.cr-review__progress { color: #646970; margin-left: auto; }
+.cr-review__layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.5rem; align-items: start; }
+@media (max-width: 1100px) { .cr-review__layout { grid-template-columns: 1fr; } }
+
+.cr-row { cursor: pointer; }
+.cr-row:hover td, .cr-row:focus td { background: #f0f6fc; }
+.cr-row.is-current td { background: #e6f0fa; box-shadow: inset 3px 0 0 #2271b1; }
+.cr-row.is-done { opacity: .6; }
+.cr-row__meeting { white-space: nowrap; }
+.cr-row__time { font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
+
+.cr-review__panel { position: sticky; top: 46px; background: #fff; border: 1px solid #c3c4c7; padding: 1rem; }
+.cr-review__player { position: relative; aspect-ratio: 16 / 9; background: #000; }
+.cr-review__player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+.cr-review__now { margin: .5rem 0 0; font-family: ui-monospace, Menlo, monospace; color: #50575e; }
+.cr-review__panel h2 { margin: 1rem 0 .25rem; font-size: 1.15rem; }
+.cr-review__actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin: .75rem 0; }
+.cr-review__clear { color: #b32d2e !important; }
+.cr-review__message { min-height: 1.4em; color: #007017; margin: 0; }
+
+.cr-review__transcript { max-height: 22rem; overflow-y: auto; border-top: 1px solid #dcdcde; font-size: 13px; line-height: 1.5; }
+.cr-line { margin: 0; padding: .25rem .35rem; cursor: pointer; border-bottom: 1px solid #f0f0f1; }
+.cr-line:hover { background: #f6f7f7; }
+.cr-line.is-now { background: #fcf9e8; box-shadow: inset 3px 0 0 #dba617; }
+.cr-line__t { font-family: ui-monospace, Menlo, monospace; color: #787c82; margin-right: .35rem; }
+.cr-line mark { background: #f0e6b8; padding: 0 .1em; }
