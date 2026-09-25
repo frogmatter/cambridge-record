@@ -98,6 +98,8 @@ python enrich_meetings.py --all
 | `match_agenda.py` | Places votes, agenda items and sections on the video timeline using the captions |
 | `enrich_meetings.py` | Adds agenda + official votes to ingested meetings, with video times (re-run to pick up late minutes) |
 | `backfill.py` | Ingests every full-committee meeting the CPS portal lists since a date (`--since 2026-01-01`) |
+| `cambridge_terms.txt` | Cambridge names and terms: caption fixes, suggestions, dictionary vocabulary |
+| `improve_captions.py` | Caption fixes, reports, worksheets, and corrected captions for Cablecast |
 | `edit_meeting.py` | Corrects a meeting's title or date in WordPress |
 | `officials.json` | School Committee roster (names, titles, terms, subcommittees, name as written in the minutes) |
 | `sync_officials.py` | Creates/updates Official pages in WordPress from `officials.json` |

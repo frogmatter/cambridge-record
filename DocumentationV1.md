@@ -6,7 +6,7 @@
 **Started:** September 2026  
 **Target:** NEACM Conference, November 17, 2026  
 **Author:** Matt, Media Arts Manager, Cambridge Public Schools  
-**Current versions:** plugin 0.4.0 · theme 0.4.1
+**Current versions:** plugin 0.4.1 · theme 0.4.2
 
 ---
 
@@ -185,8 +185,9 @@ parser missed a new phrasing — note the meeting and it can be fixed in
 match them; that's by design (the minutes are the official record).
 
 **Transcript text errors** (misheard names etc.) come from Cablecast's
-captions. They can't be edited in WordPress without being overwritten;
-the planned caption-correction step will handle them.
+captions. Add the fix to `cambridge_terms.txt` and re-run
+`enrich_meetings.py` — see *Improving captions* below. Don't edit
+transcript text in WordPress; the next run would overwrite it.
 
 **Starting a meeting over.** Rarely needed — prefer `enrich_meetings.py`,
 which refreshes everything except the transcript. If a meeting truly
@@ -200,6 +201,79 @@ python ingest_cablecast.py --show 11522
 
 Deleting loses its Review times decisions, and the new post may get a
 different address (links people shared to the old one will break).
+
+### Improving captions
+
+Cablecast is where people watch, so the goal is the best captions *there*;
+this site uses the same improvements. `cambridge_terms.txt` is the single
+list of Cambridge names and terms, with three kinds of line (see its
+header):
+
+- `wrong|right` — a **fix**, applied automatically to every transcript.
+  Only for misspellings: say what was said, spelled right. Never add words
+  (not "Peabody" → "Peabody School"), and keep titles — "Remember Hudson"
+  in a roll call is "Member Hudson".
+- `?wrong|right` — a **suggestion**: usually wrong, but sometimes right
+  ("Kayla" is usually "KLo", but Kayla Goodell spoke at public comment).
+  Listed in reports for a person to check; never applied.
+- `term` — **vocabulary** for the MediaScribe / Cablecast dictionaries.
+
+Three ways the list improves captions:
+
+1. **Future recordings** — paste the vocabulary into MediaScribe and
+   Cablecast: `python improve_captions.py --vocabulary`
+2. **Past recordings on Cablecast** — export corrected captions, with the
+   original timings, and upload them to the video in Cablecast:
+   `python improve_captions.py --export --show 11498` → `exports/` gets
+   `.vtt` (Cablecast VOD), `.scc` (Cablecast playback; checked word for word
+   before it's written) and `.srt`. SCC captions show about half a second
+   after the VTT times — normal for broadcast captions. Whether Cablecast's
+   translated tracks update after an uploaded file (they do after edits in
+   Cablecast's caption editor) is still to be tested.
+3. **This site** — `enrich_meetings.py` applies the fixes on every run,
+   always from Cablecast's original text (kept per caption as
+   `text_original`), so editing the list and re-running is safe. Meeting
+   pages say how many corrections were made.
+
+To find what to add next:
+
+```
+python improve_captions.py --report                # every meeting
+python improve_captions.py --report --show 11498   # one meeting, with each fix and suggestion
+```
+
+The report (in `reports/`) gives, per meeting, automatic fixes per hour
+and **likely errors** per hour — words English almost never uses and the
+list doesn't know ("Jacoar", "Sididiki"). Its "Words to check" table is
+the to-do list for `cambridge_terms.txt`. Likely errors are a floor, not
+a total: mistakes that are real words ("Jake Moore") aren't counted.
+
+Fixes work within one caption line, so a name split across two lines
+("Member. De Paula" / "Santos") isn't fixed.
+
+### How much human editing does a meeting need?
+
+Only a person listening can say. Make a 10-minute worksheet, have someone
+correct it while playing the video, and time it:
+
+```
+python improve_captions.py --sample --show 11498 --at 0:02:17
+#   → samples/2026-08-04_11498_137.txt — instructions are inside
+python improve_captions.py --score samples/2026-08-04_11498_137.txt
+```
+
+`--score` reports the share of words that were wrong in Cablecast's
+captions and after the automatic fixes, and the staff time per hour of
+meeting. Three worksheets are ready in `samples/`: 8/4 public comment
+(remote speakers — the hardest audio), 1/20 (an early-2026 recording with
+weaker captions), and 9/1 (recent).
+
+A full word-for-word correction of a 3–5 hour meeting is likely to be a
+day's work. The corrections that matter most are names, motions, votes
+and dollar amounts — the vote timing is handled in Review times, and the
+terms list covers most names — so a focused review of the report's
+"words to check" may be the realistic weekly job. The worksheets will
+say.
 
 ### Officials
 
@@ -250,6 +324,10 @@ new files; if a page looks stale, hard-refresh (Cmd+Shift+R).
 | Check what the parser reads from minutes | `python parse_minutes.py <minutes PDF URL>` |
 | Update the roster | edit `officials.json`, then `python sync_officials.py` |
 | Fix vote times | WP admin → Meetings → Review times |
+| Caption report (what to add to the terms list) | `python improve_captions.py --report` |
+| Corrected captions for Cablecast | `python improve_captions.py --export --show ID` |
+| Vocabulary for MediaScribe / Cablecast | `python improve_captions.py --vocabulary` |
+| Measure editing time | `python improve_captions.py --sample --show ID --at h:mm:ss`, then `--score` |
 | Publish / unpublish | WP admin → Meetings → Status |
 | Logs | `pipeline.log` |
 
@@ -274,6 +352,7 @@ Matt's MacBook (local pipeline)
   │     ├── scrape_agenda.py  — portal row + agenda page
   │     ├── parse_minutes.py  — votes from the minutes PDF
   │     └── match_agenda.py   — roll calls in captions ↔ votes in minutes
+  ├── improve_captions.py  — Cambridge terms fixes, reports, Cablecast export
   ├── sync_officials.py    — officials.json → Official pages
   ├── edit_meeting.py      — correct a meeting's title/date
   └── pipeline.db          — SQLite: which show is which WordPress post
@@ -552,9 +631,10 @@ individuals, only for officials.
 number (e.g. #26-125, tabled on 6/2 and 8/4, back on 9/1) built from
 existing data; a start on the `cr_issue` "issue threads".
 
-**Caption improvement** — a correction pass on Cablecast captions from a
-Cambridge terms list (names first), then a timed test of Whisper on one
-meeting, with the transcript source labeled per meeting.
+**Caption improvement, next steps** — have a person do the three
+worksheets in `samples/`; upload corrected captions to Cablecast and check
+whether the translated caption tracks follow; a timed Whisper test on one
+meeting to compare with Cablecast's captions.
 
 **Scheduled runs** — a weekly job on the Mac to ingest new meetings and
 pick up minutes.

@@ -18,6 +18,7 @@ while ( have_posts() ) :
     $agenda    = get_post_meta( $id, 'agenda_url', true );
     $summary   = get_post_meta( $id, 'summary', true );
     $origin    = get_post_meta( $id, 'summary_origin', true );
+    $corrections = (int) get_post_meta( $id, 'caption_corrections', true );
     $languages = array_filter( array_map( 'trim', explode( ',', (string) get_post_meta( $id, 'languages_available', true ) ) ) );
     ?>
     <div class="wrap">
@@ -93,6 +94,11 @@ while ( have_posts() ) :
                     <button type="button" class="btn btn--ghost" id="find-prev" aria-label="Previous match" disabled>↑</button>
                     <button type="button" class="btn btn--ghost" id="find-next" aria-label="Next match" disabled>↓</button>
                 </div>
+
+                <p class="transcript-note">
+                    From the meeting’s Cablecast captions<?php if ( $corrections ) : ?>, with <?php echo (int) $corrections; ?> names and terms corrected automatically from a Cambridge terms list<?php endif; ?>.
+                    Captions can contain errors — the video is the record.
+                </p>
 
                 <div class="transcript" id="transcript">
                     <p class="status loading">Loading transcript</p>

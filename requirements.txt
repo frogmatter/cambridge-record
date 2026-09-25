@@ -3,3 +3,6 @@ beautifulsoup4==4.12.3
 python-dotenv==1.0.1
 lxml==5.2.2
 pypdf==6.19.0
+wordfreq==3.1.1
+pycaption==2.3.10
+chardet<6

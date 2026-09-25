@@ -5,7 +5,7 @@
  *              Single post per meeting — segments, agenda items, and votes
  *              stored as JSON in post meta. Designed for shared hosting.
  *              No plugin dependencies. REST API ready for the local pipeline.
- * Version:     0.4.0
+ * Version:     0.4.1
  * Author:      Matt / Cambridge Public Schools
  * License:     CC BY-SA 4.0
  * Site:        mediatechaction.com
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_PLUGIN_VERSION', '0.4.0' );
+define( 'CR_PLUGIN_VERSION', '0.4.1' );
 
 require_once __DIR__ . '/includes/review.php';
 
@@ -122,6 +122,7 @@ function cr_register_meta_fields() {
         'summary_origin'         => 'string',   // 'ai:gemini-flash' | 'extractive' | 'pending'
         'languages_available'    => 'string',   // comma-separated
         'cr_status'              => 'string',   // 'processing' | 'ready' | 'published'
+        'caption_corrections'    => 'integer',  // fixes applied from cambridge_terms.txt (originals kept per segment)
     ];
     cr_register_meta_group( 'cr_meeting', $meeting_scalars );
 

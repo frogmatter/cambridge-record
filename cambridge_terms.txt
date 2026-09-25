@@ -1,0 +1,294 @@
+# Cambridge Record — Cambridge terms and caption corrections
+#
+# One file, two uses:
+#   1. Vocabulary for the MediaScribe / Cablecast caption dictionaries
+#      (python improve_captions.py --vocabulary prints the list to paste in)
+#   2. Corrections that improve_captions.py applies to meeting transcripts
+#
+# Three kinds of line:
+#   wrong|right     FIX — applied automatically. Only for spellings the captioner
+#                   gets wrong; the fix should say what was said, spelled right.
+#                   Never add words the speaker didn't say (no "Peabody" →
+#                   "Peabody School"), and keep titles ("Remember Hudson" was
+#                   "Member Hudson" in a roll call, not "Elizabeth Hudson").
+#   ?wrong|right    SUGGESTION — probably wrong, but the same words can be right
+#                   ("Kayla" is usually "KLo", but Kayla Goodell spoke at public
+#                   comment). Listed for a person to check; never applied.
+#   term            VOCABULARY — a correct term for the caption dictionaries.
+#                   The right-hand side of every fix is vocabulary too.
+#
+# Matching is case-insensitive and whole-word. Longer entries apply first,
+# and a fix never applies where the right form is already there.
+# Lines starting with # are comments. Add new entries as you find errors.
+
+
+# ── SCHOOL COMMITTEE MEMBERS ─────────────────────────────────────────────────
+
+# David Weinstein (Chair)
+Winestein|Weinstein
+Winstein|Weinstein
+David Weinstein
+
+# Caitlin Dube (Vice Chair)
+Dubé|Dube
+Dooby|Dube
+Duby|Dube
+Dubi|Dube
+Dubie|Dube
+Caitlin Dube
+
+# Sumbul Siddiqui (Mayor)
+Siddicky|Siddiqui
+Siddiqy|Siddiqui
+Siddique|Siddiqui
+Siddiqi|Siddiqui
+Siddqui|Siddiqui
+Sididiki|Siddiqui
+Mayor Siki|Mayor Siddiqui
+Mayor Stey and I|Mayor Siddiqui
+Sumbull|Sumbul
+Sumbul Siddiqui
+
+# Luisa de Paula Santos
+De Paula Santos|de Paula Santos
+member to Paula Santos|Member de Paula Santos
+member of Paula Santos|Member de Paula Santos
+member the Paula Santos|Member de Paula Santos
+Di Palo Santos|de Paula Santos
+Di Paula Santos|de Paula Santos
+Paula Santos|de Paula Santos
+Paul Santos|de Paula Santos
+Luisa de Paula Santos
+
+# Richard Harding Jr.
+Hardin|Harding
+Richard Harding
+
+# Elizabeth Hudson
+Elizabeth Hudson
+
+# Arjun Jaikumar
+Jake Kumar|Jaikumar
+Jaikimar|Jaikumar
+J. Kumar|Jaikumar
+Jakumar|Jaikumar
+Arjoon|Arjun
+Arjun Jaikumar
+
+# Roll calls: the clerk says "Member Hudson"; captions often hear "Remember Hudson"
+Remember Harding|Member Harding
+Remember Hudson|Member Hudson
+Remember Jaikumar|Member Jaikumar
+Remember de Paula Santos|Member de Paula Santos
+
+# Student Members
+Imogen|Immogene
+Immojean|Immogene
+Immogene Goode
+Maia Shen
+
+
+# ── CPSD EXECUTIVE LEADERSHIP ────────────────────────────────────────────────
+
+# Superintendent
+David Murphy
+Superintendent Murphy
+
+# Executive Leadership Team
+# (Titles like "Dr." are vocabulary only — transcripts keep what was said)
+Doctor Francis|Dr. Francis
+Heidi Cook
+Dr. Heather Francis
+Dr. Karyn Grace
+Jimenez|Jiménez
+Dr. Leslie Jiménez
+Dr. Chad Leith
+Doctor Madeira|Dr. Madera
+Dr. Michelle Madera
+McCane|McCanne
+Dr. Lee McCanne
+Ashley Pierre
+Miss Peaks|Miss Piques
+Jackie Piques
+Damon Smith
+Miss Strauss|Miss Stras
+Tamara Stras
+Tamii
+Ivy Washington
+Weisman|Weismann
+Miss Wiseman|Miss Weismann
+Carolyn Weismann
+
+
+# ── SCHOOLS ──────────────────────────────────────────────────────────────────
+
+# Cambridge Rindge and Latin School
+C.R.L.S.|CRLS
+CLS|CRLS
+?Searles|CRLS
+?Sierra Ellis|CRLS
+Cambridge Ridge|Cambridge Rindge
+CRLS
+Cambridge Rindge and Latin School
+
+# Rindge School of Technical Arts
+R.S.T.A.|RSTA
+RISTA|RSTA
+RSTA
+
+# Amigos School
+amigo's|Amigos
+a me goes|Amigos
+Amigos School
+
+# Upper Schools
+Darby Vessel|Darby Vassall
+Darby Vassal|Darby Vassall
+Putnam Avenue Upper School
+Rindge Avenue Upper School
+Cambridge Street Upper School
+Vassal Lane Upper School
+
+# Elementary Schools
+Graham Parks|Graham & Parks
+Graham and Parks|Graham & Parks
+Fletcher Maynard Academy
+Graham & Parks School
+Haggerty School
+King Open School
+Dr. Martin Luther King, Jr. School
+Morse School
+Peabody School
+Tobin Montessori School
+Cambridgeport School
+Baldwin School
+
+# Kennedy Longfellow ("KLo")
+the Kalo|the KLo
+?Kayla|KLo
+158 Spring Street
+Kennedy Longfellow
+Kennedy Longfellow School
+KLo
+
+
+# ── ORGANIZATIONS AND PROGRAMS ───────────────────────────────────────────────
+
+C.P.S.D.|CPSD
+CPSD
+Cambridge Public Schools
+CPS
+Eastern Bus Company
+RTB
+Beacon
+MSBA
+WCAG
+
+
+# ── POLICIES AND PROGRAMS ────────────────────────────────────────────────────
+
+control choice|controlled choice
+reconsiderations
+unhoused
+controlled choice
+Cambridge Preschool Program
+Innovation Agenda
+360 evaluations
+junior kindergarten
+Special Start
+
+
+# ── CAMBRIDGE PLACES ─────────────────────────────────────────────────────────
+
+Ahearn Field
+Upton Street
+East Cambridge
+Harvard Square
+Massachusetts Avenue
+Warren Road
+
+
+# ── COMMON ACRONYMS ──────────────────────────────────────────────────────────
+
+MCASS|MCAS
+MMCAS|MCAS
+DESESE|DESE
+DESESEE|DESE
+Suintendent|superintendent
+Sutendent|superintendent
+MTSS
+CKLA
+SES
+ASD
+IEP
+HSEP
+MAS
+CEATV
+MCAS
+CEA
+DESE
+DHSP
+CSUS
+FMA
+
+
+# ── JAIKUMAR MISRECOGNITIONS ─────────────────────────────────────────────────
+# Arjun Jaikumar's name gets mangled in many ways
+
+Jayakumar|Jaikumar
+Jake Amar|Jaikumar
+Jake Moore|Jaikumar
+Jacob Moore|Jaikumar
+Jacob Maher|Jaikumar
+Jacamar|Jaikumar
+Jacomar|Jaikumar
+Jacoar|Jaikumar
+Jakemar|Jaikumar
+Jakemore|Jaikumar
+
+
+# ── DUBE MISRECOGNITIONS ──────────────────────────────────────────────────────
+
+Dubey|Dube
+Doobie|Dube
+
+
+# ── DE PAULA SANTOS MISRECOGNITIONS ──────────────────────────────────────────
+
+Paul Sanders|de Paula Santos
+Palo Santos|de Paula Santos
+Paulo Santos|de Paula Santos
+
+
+# ── MEETING ROOM ─────────────────────────────────────────────────────────────
+# The Dr. Henrietta S. Attles Meeting Room is where in-person SC meetings occur
+
+S. Adel's|S. Attles
+Adtles|Attles
+Adels|Attles
+Dr. Henrietta S. Attles Meeting Room
+
+
+# ── STAFF AND COMMUNITY MEMBERS ──────────────────────────────────────────────
+# Real people confirmed appearing in meetings. For residents, fix spelling
+# only — never expand a resident's name.
+
+Miss Aragon|Miss Amigone
+Jennifer Amigone
+Anne Coburn|Ann Coburn
+Chris Monteiro|Chris Montero
+Gately Gehant
+
+
+# ── PROGRAMS AND ORGANIZATIONS ───────────────────────────────────────────────
+
+Building Equity Bridges
+Discovering Justice
+Democratic Knowledge Project
+Attuned Education Partners
+Cambridge Education Association
+
+
+# ── PLACES ───────────────────────────────────────────────────────────────────
+
+Framingham

@@ -32,6 +32,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit, parse_qsl
 import requests
 from dotenv import dotenv_values
 
+from improve_captions import correct_segments
 from match_agenda import fix_mojibake, time_agenda, time_votes
 
 from parse_minutes import docket_titles, minutes_text, parse_votes
@@ -159,13 +160,21 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
     link_votes_and_agenda(agenda, votes or [], minutes_titles)
 
     # Transcript: repair apostrophes garbled at ingest (before the
-    # fetch_captions.py decoding fix), then place things on the timeline.
+    # fetch_captions.py decoding fix), apply the Cambridge terms fixes
+    # (from the original caption text, kept in text_original), then place
+    # things on the timeline.
     segments = json.loads(current['meta'].get('segments_json') or '[]')
+    stored = json.dumps(segments)
     repaired = 0
     for seg in segments:
-        fixed = fix_mojibake(seg['text'])
-        if fixed != seg['text']:
-            seg['text'], repaired = fixed, repaired + 1
+        for field in ('text', 'text_original'):
+            if field in seg:
+                fixed = fix_mojibake(seg[field])
+                if fixed != seg[field]:
+                    seg[field] = fixed
+                    repaired += field == 'text'
+    corrections = correct_segments(segments)
+    transcript_changed = json.dumps(segments) != stored
 
     embed = current['meta'].get('cablecast_embed_url')
     if segments:
@@ -191,7 +200,8 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
         meta['votes_json'] = json.dumps(votes)
         meta['vote_count'] = len(votes)
     payload = {'meta': meta}
-    if repaired:
+    meta['caption_corrections'] = corrections
+    if transcript_changed:
         meta['segments_json'] = json.dumps(segments)
         payload['content'] = ' '.join(s['text'] for s in segments)   # what WordPress search indexes
 
@@ -205,6 +215,7 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
         'votes_timed':  sum(1 for v in votes or [] if v.get('start_seconds') is not None),
         'agenda_timed': sum(1 for a in agenda if a.get('start_seconds') is not None),
         'repaired':     repaired,
+        'corrections':  corrections,
         'reviewed':     reviewed,
         'date_mismatch': (wp_date, portal['date']) if wp_date and wp_date != portal['date'] else None,
     }
@@ -213,6 +224,7 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
              + (f"{len(votes)} votes from minutes ({summary['votes_timed']} placed in video)" if votes is not None
                 else 'minutes not posted yet (caption vote flags kept)')
              + (f" | repaired {repaired} garbled transcript lines" if repaired else '')
+             + (f" | {corrections} caption fixes" if corrections else '')
              + (f" | kept {reviewed} reviewed time(s)" if reviewed else ''))
     for v in votes or []:
         if v.get('start_seconds') is None and not v.get('reviewed'):

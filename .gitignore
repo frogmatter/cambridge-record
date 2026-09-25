@@ -3,3 +3,5 @@ pipeline.db
 pipeline.log
 venv/
 __pycache__/
+exports/
+reports/

@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_THEME_VERSION', '0.4.1' );
+define( 'CR_THEME_VERSION', '0.4.2' );
 
 
 // ═══════════════════════════════════════════════════════

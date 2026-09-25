@@ -2,7 +2,7 @@
 Theme Name:   Cambridge Record
 Theme URI:    https://mediatechaction.com
 Description:  Public theme for the Cambridge Record civic meeting archive. Meeting list, transcript search, and meeting pages with video + transcript. Reads data from the Cambridge Record plugin's REST API. Requires the Cambridge Record plugin.
-Version:      0.4.1
+Version:      0.4.2
 Author:       Matt / Cambridge Public Schools
 License:      CC BY-SA 4.0
 Text Domain:  cambridge-record
@@ -515,3 +515,5 @@ select {
 .more-hits { margin: .5rem 0 0; font-size: .875rem; }
 .hit--agenda .hit__text { font-family: var(--sans); font-size: .9375rem; }
 .cast--candidate { border-color: var(--ink-2); color: var(--ink); }
+
+.transcript-note { font-size: .8125rem; color: var(--ink-3); margin: .6rem 0 .25rem; }
