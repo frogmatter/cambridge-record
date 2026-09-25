@@ -556,6 +556,15 @@ def ingest_show(show_id, conn, dry_run=False):
         push_segments_json(wp_id, segments, show_id)
         mark_ingested(conn, show_id, wp_id, date, len(segments))
 
+        # Agenda + official votes from the CPS portal. Non-fatal: the
+        # captions are in, and enrich_meetings.py can be re-run later
+        # (minutes are usually posted weeks after the meeting anyway).
+        try:
+            from enrich_meetings import enrich_show
+            enrich_show(show_id, wp_id)
+        except Exception as e:
+            log.warning(f'  Agenda/minutes step failed ({e}) — run: python enrich_meetings.py --show {show_id}')
+
         log.info(f'  Done. Show {show_id} → WP post {wp_id}')
         return True
 

@@ -62,11 +62,11 @@
         return d ? d.toLocaleDateString( 'en-US', opts ) : '';
     }
 
-    /** Cambridge school year runs Sept–Aug: 2026-01-10 → "2025–26". */
+    /** CPS school/fiscal year runs July 1 – June 30: 2026-08-04 → "2026–27". */
     function schoolYear( ymd ) {
         const d = parseDate( ymd );
         if ( ! d ) return 'Undated';
-        const start = d.getMonth() >= 8 ? d.getFullYear() : d.getFullYear() - 1;
+        const start = d.getMonth() >= 6 ? d.getFullYear() : d.getFullYear() - 1;
         return `${ start }–${ String( start + 1 ).slice( 2 ) }`;
     }
 

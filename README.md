@@ -63,6 +63,13 @@ python ingest_cablecast.py --limit 1
 python ingest_cablecast.py
 ```
 
+Ingest also pulls the agenda (and votes, if minutes are posted) from the
+CPS portal. Minutes usually appear weeks later — pick them up with:
+
+```
+python enrich_meetings.py --all
+```
+
 ---
 
 ## Files in this folder
@@ -76,8 +83,8 @@ python ingest_cablecast.py
 | `find_show_id.py` | Finds your Cablecast Show ID |
 | `test_api.py` | Tests WordPress connection |
 | `ingest_cablecast.py` | Main pipeline — pulls from Cablecast, pushes to WordPress |
-| `scrape_agenda.py` | Pulls agenda items from CPS website |
-| `match_agenda.py` | Links agenda items to transcript timestamps |
-| `detect_votes.py` | Extracts roll call votes from transcripts |
+| `scrape_agenda.py` | Finds a meeting on the CPS portal by Cablecast show ID and parses its agenda |
+| `parse_minutes.py` | Parses official votes (motion, mover, roll call) from a minutes PDF |
+| `enrich_meetings.py` | Adds agenda + official votes to ingested meetings (re-run to pick up late minutes) |
 | `pipeline.db` | Local database tracking what's been ingested (created automatically) |
 | `pipeline.log` | Log of all pipeline runs (created automatically) |

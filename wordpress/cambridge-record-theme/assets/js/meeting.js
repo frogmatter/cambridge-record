@@ -270,35 +270,78 @@
 
     // ── Agenda & votes panels ──────────────────────────────
 
-    function momentButton( seconds, label, extra ) {
+    /** A panel row: jumps the video when it has a time, plain text when it doesn't. */
+    function momentRow( seconds, content, cls = '' ) {
         const hasTime = seconds !== null && seconds !== undefined && seconds !== '';
-        return el( 'li', {},
+        return el( 'li', { class: cls },
             hasTime
                 ? el( 'button', { type: 'button', onclick: () => seek( seconds, { scroll: true } ) },
                     el( 'span', { class: 't' }, fmtTime( seconds ) ),
-                    el( 'span', {}, label, extra ) )
-                : el( 'div', { class: 'panel-row' }, el( 'span', { class: 't' }, '—' ), el( 'span', {}, label, extra ) )
+                    el( 'span', {}, content ) )
+                : el( 'div', { class: 'panel-row panel-row--untimed' }, el( 'span', {}, content ) )
         );
     }
 
-    function renderAgenda( items ) {
+    /** "5–2 · Nay: Member Harding, Member Hudson" */
+    function tally( v ) {
+        if ( v.vote_for === null || v.vote_for === undefined ) {
+            return v.method === 'voice' ? 'voice vote' : '';
+        }
+        let text = `${ v.vote_for }–${ v.vote_against }`;
+        if ( v.vote_abstain ) text += `, ${ v.vote_abstain } abstain`;
+        if ( ( v.voters_against || [] ).length ) text += ` · Nay: ${ v.voters_against.join( ', ' ) }`;
+        return text;
+    }
+
+    function voteSummary( v ) {
+        return el( 'span', { class: 'vote-meta' },
+            v.result && v.result !== 'unknown' ? el( 'span', { class: v.passed === false ? 'tag tag--failed' : 'tag tag--vote' }, v.result ) : null,
+            tally( v ) ? el( 'span', {}, tally( v ) ) : null
+        );
+    }
+
+    function renderAgenda( items, votes ) {
         if ( ! items.length ) return;
+        const byIndex = new Map( votes.map( ( v ) => [ v.index, v ] ) );
         const list = document.getElementById( 'agenda-list' );
-        list.replaceChildren( ...items.map( ( a ) =>
-            momentButton( a.start_seconds, [ a.item_number ? `${ a.item_number }. ` : '', a.title || 'Agenda item' ].join( '' ) )
-        ) );
+        list.replaceChildren( ...items.map( ( a ) => {
+            if ( a.item_type === 'section' ) {
+                return el( 'li', { class: 'agenda-section' }, `${ a.item_number }. ${ a.title }` );
+            }
+            // The item's final vote (e.g. "adopted" after "rules suspended")
+            const vote = ( a.vote_indexes || [] ).map( ( i ) => byIndex.get( i ) ).filter( Boolean ).pop();
+            return momentRow( a.start_seconds, [
+                el( 'span', { class: 'agenda-title' }, a.docket ? `#${ a.docket } ` : '', a.title || 'Agenda item' ),
+                vote ? voteSummary( vote ) : null,
+            ] );
+        } ) );
         document.getElementById( 'agenda-panel' ).hidden = false;
     }
 
     function renderVotes( votes ) {
         if ( ! votes.length ) return;
+        const official = votes.find( ( v ) => v.source === 'minutes' );
+        if ( official ) {
+            document.getElementById( 'votes-heading' ).replaceChildren(
+                'Votes ',
+                el( 'a', { class: 'tag', href: official.source_url, rel: 'noopener', title: 'Votes as recorded in the official minutes' }, 'from minutes ↗' )
+            );
+        }
         const list = document.getElementById( 'votes-list' );
         list.replaceChildren( ...votes.map( ( v ) => {
-            const text = String( v.motion_text || v.raw_context || 'Vote' );
-            const result = v.result && v.result !== 'unknown'
-                ? [ ' ', el( 'span', { class: 'tag tag--vote' }, v.result ) ]
-                : null;
-            return momentButton( v.start_seconds, text.length > 160 ? `${ text.slice( 0, 157 ) }…` : text, result );
+            const items = v.items || [];
+            let label = String( v.motion_text || v.raw_context || 'Vote' );
+            label = label.charAt( 0 ).toUpperCase() + label.slice( 1 );
+            if ( items.length === 1 && items[ 0 ].title ) {
+                label = `${ items[ 0 ].docket ? `#${ items[ 0 ].docket } ` : '' }${ items[ 0 ].title }`;
+            } else if ( items.length > 1 ) {
+                label = `${ items.length } items: #${ items.map( ( i ) => i.docket ).join( ', #' ) }`;
+            }
+            if ( label.length > 160 ) label = `${ label.slice( 0, 157 ) }…`;
+            return momentRow( v.start_seconds, [
+                el( 'span', { class: 'agenda-title' }, label ),
+                official ? voteSummary( v ) : ( v.result && v.result !== 'unknown' ? voteSummary( v ) : null ),
+            ] );
         } ) );
         document.getElementById( 'votes-panel' ).hidden = false;
     }
@@ -392,8 +435,9 @@
         }
 
         renderTranscript( parseJson( meta.segments_json ) );
-        renderAgenda( parseJson( meta.agenda_json ) );
-        renderVotes( parseJson( meta.votes_json ) );
+        const votes = parseJson( meta.votes_json );
+        renderAgenda( parseJson( meta.agenda_json ), votes );
+        renderVotes( votes );
 
         if ( startAt !== null ) seek( startAt, { scroll: true, load: false } );
 

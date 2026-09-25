@@ -250,6 +250,18 @@ votes or displayed publicly.
 
 ---
 
+## Longer-term goals
+
+**Supporting documents and presentations**  
+The CPS portal (portal.cpsd.us/school_committee/) links each meeting's
+supporting material: recommendation PDFs (`admin/recommendations/26-180.pdf`),
+motion/order PDFs (`admin/motion_order_files/…`), and presentations
+(Google Drive links). Attach these to meetings and agenda items so a
+resident can read the document being discussed next to the moment it's
+discussed. Not started — agenda and votes come first.
+
+---
+
 ## For other MassAccess stations
 
 The Cablecast pipeline is generic. Any station running Cablecast with:
