@@ -10,7 +10,7 @@ Available weeks: 8
 ## Week 1 (Sep 19–26) — Groundwork
 **Goal: answer the unknowns before building anything**
 
-- [ ] Reach out to Stephen Walter (steve@brooklineinteractive.org)
+- [ ] Reach out to Stephen Walter
       - Introduce Cambridge pilot, MassAccess expansion idea
       - Ask about Cablecast adapter, NEACM co-presentation interest
 - [ ] Check DreamHost account tier — upgrade to VPS if on shared hosting

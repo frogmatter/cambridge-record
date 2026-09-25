@@ -1,11 +1,12 @@
 # Cambridge Record — Project Documentation
-## How it was built, what we learned, and where it's going
+## How it was built, how to run it, and where it's going
 
 **Project:** Cambridge Record  
 **Site:** mediatechaction.com  
 **Started:** September 2026  
 **Target:** NEACM Conference, November 17, 2026  
 **Author:** Matt, Media Arts Manager, Cambridge Public Schools  
+**Current versions:** plugin 0.4.0 · theme 0.4.1
 
 ---
 
@@ -15,13 +16,242 @@ A civic meeting archive that makes Cambridge School Committee meetings
 searchable, structured, and navigable across time — by topic, by moment,
 by keyword. A resident can search "transportation" and see every moment
 the word was spoken across all meetings, with a link that jumps the video
-to that exact second.
+to that exact second. Each meeting shows its agenda and the official
+votes from the minutes; each School Committee member has a page with
+every roll-call vote they've cast.
 
 Built on WordPress (DreamHost shared hosting), populated by a local
-Python pipeline that pulls from Cablecast's public CDN and pushes
+Python pipeline that pulls captions from Cablecast's public CDN and
+agendas and minutes from the CPS School Committee portal, and pushes
 structured data to WordPress via the REST API.
 
 Inspired by: publicrecord.studio (Brookline Interactive Group / Weird Machine)
+
+---
+
+## Working with meetings — day to day
+
+This section is the operator's guide: how a meeting gets onto the site,
+what to check before and after publishing, and how to fix things.
+Commands run in Terminal from the project folder after
+`source venv/bin/activate`.
+
+### The life of a meeting
+
+```
+Cablecast video + captions ──► ingest ──► DRAFT in WordPress
+CPS portal agenda (48h before) ──► enrich ──► agenda + section times
+                                   │
+                         review, then PUBLISH  ◄── you
+                                   │
+CPS portal minutes (weeks later) ──► enrich again ──► official votes,
+                                                      vote times,
+                                                      officials' records
+```
+
+1. **Ingest** creates the meeting as a **draft**: title and date from
+   Cablecast, the full transcript, the video embed. It then looks the
+   meeting up on the CPS portal and adds the agenda.
+2. **You review and publish.** Nothing is public until you publish it —
+   the AI Constitution's "a human approves every meeting".
+3. **Minutes arrive weeks later.** Re-running enrich adds the official
+   votes, places them on the video, and every member's voting record
+   updates automatically.
+
+### Adding new meetings
+
+```
+python backfill.py --since 2026-09-01 --dry-run    # what's new on the portal?
+python backfill.py --since 2026-09-01              # ingest it
+```
+
+`backfill.py` reads the CPS portal's meeting list, where each row links its
+video by Cablecast show ID, and ingests every full-committee meeting (Regular
+and Special) not yet ingested. It's safe to re-run — already-ingested
+meetings are skipped. It ends with a summary that flags any meeting whose
+Cablecast date disagrees with the portal's (see *Fixing a wrong title or
+date* below).
+
+For one specific video: `python ingest_cablecast.py --show 11522`.
+
+Subcommittee meetings are not ingested yet (see *What's not built yet*).
+
+### Before you publish a meeting
+
+Open the draft's **Preview** and check:
+
+- **Title and date** match the CPS portal. Cablecast is sometimes wrong
+  (9/8/26 was listed as a "Regular Meeting" on 9/1).
+- **The video plays** and clicking a transcript line jumps it.
+- **The agenda** appears (Special meetings often have none — that's normal).
+- **Review times** (below) has nothing left for this meeting, or only
+  items you've decided to leave.
+
+Then publish it — one at a time from the editor, or several at once from
+**Meetings → filter to Drafts → select → Bulk actions → Edit → Status:
+Published**. The **Published** column on the Meetings list shows which
+meetings residents can see.
+
+### What publishing does
+
+Only published meetings appear anywhere public:
+
+| | Draft | Published |
+|---|---|---|
+| Meeting list (home page) | — | ✓ |
+| Search results | — | ✓ |
+| Officials' voting records and counts | — | ✓ |
+| Meeting page | preview only (logged in) | ✓ |
+| Review times queue | ✓ | ✓ |
+
+**Unpublishing** (switch Status back to Draft) removes a meeting from all
+of the above immediately, and its votes drop out of every member's record.
+Use it if something is wrong and you need time to fix it. Nothing is lost.
+
+### When minutes are posted
+
+The portal posts minutes after they're approved, usually at a later
+meeting. Every week or two, run:
+
+```
+python enrich_meetings.py --all              # every ingested meeting
+python enrich_meetings.py --show 11522       # or just one
+```
+
+For each meeting this re-reads the portal: agenda, minutes (if posted
+now), and places votes, agenda items and sections on the video. It is
+**safe to re-run as often as you like**:
+
+- It **never changes** a meeting's title, date, or published status.
+- It **keeps your Review times decisions** — they're re-applied after the
+  automatic matching.
+- Until minutes are posted, the meeting keeps the caption-based "possible
+  votes" guesses; once they're posted, official votes replace them.
+
+After it runs, published meetings update on the site straight away —
+no re-publishing needed. Check **Review times** for new items.
+
+### Review times
+
+**WP admin → Meetings → Review times** (the badge shows how many items
+are waiting).
+
+The pipeline places each official vote on the video by finding its roll
+call in the captions. It can't always: on some recordings members'
+answers weren't captioned, and some minutes aren't in the order things
+happened. This screen lists every vote it **couldn't place** or placed
+with **low confidence** (below 0.7), and docketed agenda items with no
+time.
+
+Click an item: the video loads at the best guess — for an unplaced
+vote, just after the previous vote — and the transcript beside it follows
+the player, with vote words (motion, second, yes, absent, roll call)
+highlighted. Click any transcript line to jump there. Then:
+
+- **Use current time** — saves where the player is now. Pause on the
+  motion, just before the roll call; that's what "watch this vote" should
+  show.
+- **Looks right** — keeps the pipeline's time.
+- **h:mm:ss + Set** — type a time.
+- **Not in the video** — e.g. votes taken in executive session.
+- **Undo my decision** — restores what the pipeline had found.
+
+Decisions take effect on the public site immediately and are kept when
+the pipeline re-runs. To spot-check a meeting the pipeline was confident
+about, pick it in the Meeting menu and tick **Show every vote in this
+meeting**.
+
+### Fixing things
+
+**A wrong title or date.**
+
+```
+python edit_meeting.py --show 11502                       # see what WordPress has
+python edit_meeting.py --show 11502 --date 2026-09-08 --title "School Committee Special Meeting 9/8/26"
+```
+
+This changes only the title and date. (Avoid editing the date through the
+editor's Custom Fields panel — it also holds the 1 MB transcript field.)
+Fix it in Cablecast too, so a future re-ingest doesn't bring the error
+back. `enrich_meetings.py` and `backfill.py` warn when WordPress and the
+portal disagree on a date.
+
+**A vote at the wrong moment, or missing its time.** Use Review times.
+
+**A vote missing entirely, or with the wrong tally.** The votes come from
+the minutes PDF on the portal. Check the PDF: if it's right there, the
+parser missed a new phrasing — note the meeting and it can be fixed in
+`parse_minutes.py`. If the minutes themselves are wrong, the site will
+match them; that's by design (the minutes are the official record).
+
+**Transcript text errors** (misheard names etc.) come from Cablecast's
+captions. They can't be edited in WordPress without being overwritten;
+the planned caption-correction step will handle them.
+
+**Starting a meeting over.** Rarely needed — prefer `enrich_meetings.py`,
+which refreshes everything except the transcript. If a meeting truly
+needs re-ingesting (e.g. Cablecast replaced the video), delete it in
+WordPress, then remove its pipeline record and ingest again:
+
+```
+sqlite3 pipeline.db "DELETE FROM ingested_shows WHERE cablecast_show_id = 11522"
+python ingest_cablecast.py --show 11522
+```
+
+Deleting loses its Review times decisions, and the new post may get a
+different address (links people shared to the old one will break).
+
+### Officials
+
+The roster lives in `officials.json`: names, titles, terms, subcommittees,
+and each member's surname **exactly as the minutes write it** — that's
+how votes are linked to people. After an election or a subcommittee
+change, edit the file and run:
+
+```
+python sync_officials.py --dry-run
+python sync_officials.py
+```
+
+It updates existing members in place and never deletes anyone: when a
+member leaves, set their `term_end` so their voting record stays online.
+
+### Sharing links
+
+Every meeting page link can point at a moment:
+
+| Link | Opens |
+|---|---|
+| `/meeting/{slug}/#t=3725` | the meeting at 1:02:05 |
+| `/meeting/{slug}/?q=budget#t=3725` | …with "budget" highlighted in the transcript |
+| `/?s=transportation` | search results |
+| `/official/{name}/` | a member's voting record |
+
+The meeting page's **Copy link to this moment** button builds the first
+kind. Search results link to the second.
+
+### Updating the plugin or theme
+
+Both live in the repo (`wordpress/cambridge-record/`,
+`wordpress/cambridge-record-theme/`) with ready-to-upload zips beside them.
+Upload with **Plugins/Themes → Add New → Upload → Replace current with
+uploaded**. Each release bumps its version number, so browsers fetch the
+new files; if a page looks stale, hard-refresh (Cmd+Shift+R).
+
+### Quick reference
+
+| Task | Command / place |
+|---|---|
+| Ingest new meetings | `python backfill.py --since YYYY-MM-DD` |
+| Ingest one video | `python ingest_cablecast.py --show ID` |
+| Fix a title or date | `python edit_meeting.py --show ID --date … --title …` |
+| Pick up posted minutes | `python enrich_meetings.py --all` |
+| Check a meeting's agenda on the portal | `python scrape_agenda.py --show ID` |
+| Check what the parser reads from minutes | `python parse_minutes.py <minutes PDF URL>` |
+| Update the roster | edit `officials.json`, then `python sync_officials.py` |
+| Fix vote times | WP admin → Meetings → Review times |
+| Publish / unpublish | WP admin → Meetings → Status |
+| Logs | `pipeline.log` |
 
 ---
 
@@ -29,21 +259,29 @@ Inspired by: publicrecord.studio (Brookline Interactive Group / Weird Machine)
 
 ```
 Cablecast CDN (reflect-video-ondemand-cpsd.cablecast.tv)
-  └── HLS manifest (.m3u8)
-        └── 1,577 VTT subtitle segments × 10 seconds each
-              └── Per-cue timestamps accurate to millisecond
+  └── HLS manifest (.m3u8) → VTT subtitle segments (10 s each, per-cue timestamps)
+
+CPS School Committee portal (portal.cpsd.us/school_committee/)
+  ├── meeting table — each row links its video by Cablecast show ID
+  ├── view_agenda.php?meetingID=… — agenda sections + docketed items (#26-178)
+  └── admin/minutes/….pdf — official minutes: every motion and roll-call vote
 
 Matt's MacBook (local pipeline)
-  ├── ingest_cablecast.py  — orchestrates everything
+  ├── backfill.py          — ingest every portal meeting since a date
+  ├── ingest_cablecast.py  — one show: captions → WordPress draft
   ├── fetch_captions.py    — downloads VTT segments concurrently
-  └── pipeline.db          — SQLite, tracks what's been ingested
+  ├── enrich_meetings.py   — agenda + votes + video times → WordPress
+  │     ├── scrape_agenda.py  — portal row + agenda page
+  │     ├── parse_minutes.py  — votes from the minutes PDF
+  │     └── match_agenda.py   — roll calls in captions ↔ votes in minutes
+  ├── sync_officials.py    — officials.json → Official pages
+  ├── edit_meeting.py      — correct a meeting's title/date
+  └── pipeline.db          — SQLite: which show is which WordPress post
 
 WordPress (mediatechaction.com / DreamHost shared hosting)
-  ├── cambridge-record plugin — registers post types + REST endpoints
-  ├── cr_meeting posts — one per meeting, segments stored as JSON in post_content + meta
-  └── REST API
-        ├── /wp-json/cambridge-record/v1/meetings  — meeting index
-        └── /wp-json/cambridge-record/v1/search?q= — full-text search
+  ├── cambridge-record plugin — post types, meta, REST endpoints, Review times
+  ├── cambridge-record-theme  — meeting list, meeting page, search, officials
+  └── REST API (below)
 ```
 
 ---
@@ -130,26 +368,78 @@ interpolated transcript data could be 15+ minutes off.
 
 ---
 
+## Agendas, votes and the video timeline
+
+The captions say *when*; the CPS portal says *what*.
+
+**Finding a meeting's documents.** The portal's meeting table links each
+meeting's video by Cablecast show ID, so a show maps directly to its
+portal row — no date matching. The row links the agenda page (posted 48
+hours before) and, later, the minutes PDF.
+
+**Agenda** (`scrape_agenda.py`): numbered sections ("7d. Consent Agenda")
+and items with docket numbers (#26-178), types (recommendation, motion,
+resolution, late order) and sponsors.
+
+**Votes** (`parse_minutes.py`): every vote in the minutes — motion, mover,
+seconder, result, each member's vote, and the dockets it decided. Parsing
+is anchored on each vote's outcome (a roll-call tally, "on a voice vote",
+"it was voted") and reads back to the motion. Tested on 2026 minutes;
+handles voice votes, NAYs, elections (votes for a candidate), and PDF
+artifacts ("S antos", "YE A", "PRESNT", "Memer").
+
+**Placing votes on the video** (`match_agenda.py`):
+
+1. Find roll calls in the captions — title→vote pairs ("Member. Hudson.
+   Yes."); or, where members' answers weren't captioned, a burst of
+   titles read out ending with the chair, or followed by the chair's
+   "on a vote of 7 in the affirmative".
+2. Pair roll calls with minutes votes in order, scoring tally agreement
+   and whether the item's docket number (or topic word) is said nearby.
+   Leftover votes can pair out of order — minutes aren't always
+   chronological.
+3. A vote's time is the motion just before its roll call.
+4. Agenda items: first mention of their docket number within their
+   section; sections: the chair's transition ("that brings us to
+   unfinished business").
+
+Every time carries `match_method` and `match_score`; low scores go to
+Review times. As of September 2026: 95 of 118 official votes placed
+automatically.
+
+---
+
 ## The WordPress data model
 
 **Post types:**
 - `cr_meeting` — one per meeting session
-- `cr_official` — School Committee members
-- `cr_issue` — curated topic threads (manually maintained)
+- `cr_official` — School Committee members (from `officials.json`)
+- `cr_issue` — curated topic threads (not used yet)
 
-**Key meta fields on `cr_meeting`:**
-- `segments_json` — JSON array of all caption cues with timestamps
-- `votes_json` — extracted vote moments
-- `agenda_json` — agenda items (Phase 3, not yet built)
-- `meeting_date`, `cablecast_embed_url`, `languages_available`, etc.
+**Meta on `cr_meeting`:**
+- `segments_json` — every caption cue with timestamps
+- `agenda_json` — sections and items, with times, docket numbers, vote links
+- `votes_json` — official votes from the minutes (or caption-based guesses
+  before minutes are posted), with roll calls, times and match scores
+- `review_json` — people's decisions from Review times
+- `meeting_date`, `meeting_body`, `cablecast_embed_url`, `agenda_url`,
+  `languages_available`, `cr_status`, etc.
 
-**`post_content`** holds all segment text concatenated — this is what
-WordPress's native search indexes. The search endpoint finds meetings
-via WordPress search, then filters segments in PHP.
+**Meta on `cr_official`:** `full_name`, `official_title`, `minutes_name`
+(surname as the minutes write it), `is_voting_member`, `term_start`,
+`term_end`, `subcommittees_json`.
 
-**REST endpoints (no auth required):**
-- `GET /wp-json/cambridge-record/v1/meetings`
-- `GET /wp-json/cambridge-record/v1/search?q={term}&limit={n}`
+**`post_content`** holds all transcript text — what WordPress's native
+search indexes. The search endpoint finds candidate meetings that way,
+then matches segments in PHP.
+
+**REST endpoints** (public unless noted):
+- `GET /wp-json/cambridge-record/v1/meetings` — published meetings
+- `GET /wp-json/cambridge-record/v1/search?q=…` — grouped by meeting,
+  newest first, with per-meeting totals and matching agenda items
+- `GET /wp-json/cambridge-record/v1/officials` — members + vote summaries
+- `GET /wp-json/cambridge-record/v1/officials/{id}` — one member's record
+- `GET|POST /wp-json/cambridge-record/v1/review` — Review times (editors only)
 
 ---
 
@@ -202,51 +492,76 @@ via the Cablecast CDN. Authentication is only required for write
 operations and internal asset endpoints (`assetreellinks`).
 
 **8. The embed player's start-time parameter is `seek`, not `t`**  
-`watch-vod-embed?showId=…&site=1&seek=1588` starts at 1588s and plays;
+`watch-vod-embed?showId=…&site=1&seek=1588` starts at 1588s;
 `&t=` is silently ignored (video starts at 0:00). The player also talks
 to the embedding page via `postMessage`: send
 `{type: 'player-cue', value: seconds}` to jump without reloading; it
 sends back `{message: 'timeupdate', value}`, `{message: 'playing', value}`
 and `{message: 'ready'}`. Found by reading Cablecast's `VideoJs-*.js`
 bundle. The embed also only allows framing from domains on its
-`frame-ancestors` allowlist (mediatechaction.com added Sept 2026).
+`frame-ancestors` allowlist (mediatechaction.com added Sept 2026) — a
+new domain or staging site must be added in Cablecast too.
+
+**9. Caption files are UTF-8, but the CDN doesn't say so**  
+With no charset header, `requests` decodes VTT as Latin-1 and every curly
+apostrophe becomes "â€™". Decode `r.content` as UTF-8 explicitly.
+
+**10. Cablecast titles and dates can be wrong; the portal is the reference**  
+Show 11502 was a 9/8 Special Meeting listed as a 9/1 Regular Meeting.
+`enrich_meetings.py` warns when WordPress and the portal disagree.
+
+**11. Captions spell names wrong, but titles and vote words right**  
+"Jake Amara" and "Jayakumar" for Jaikumar, "Doobie" for Dube — but
+"Member", "Chair", "Yes", "Absent" come through reliably. Roll-call
+detection keys on those.
+
+**12. On some recordings, members' answers weren't captioned**  
+Early-2026 captions have the clerk reading names but few "yes"es. The
+chair's "on a vote of 7 in the affirmative" fills in the tally.
+
+**13. Minutes aren't always in the order things happened, and have typos**  
+The 1/6/26 minutes list a consent item before items it followed; others
+have "PRESNT", "Memer", a stray "YEA;". Minutes also sometimes say "on a
+voice vote" and then list every member's vote — treated as a roll call.
 
 ---
 
-## What's working (as of September 2026)
+## What's working (as of late September 2026)
 
-- ✅ Pipeline: Cablecast → WordPress in ~60 seconds per meeting
-- ✅ Accurate timestamps (millisecond precision from HLS VTT)
-- ✅ Full-text search across all meetings via REST API
-- ✅ Deep-links that jump to the exact video moment
-- ✅ 7 languages tracked (en, am, ar, bn, ht, pt, zh)
-- ✅ Draft/publish workflow (pipeline creates drafts, human publishes)
+- ✅ 23 School Committee meetings (Jan–Sep 2026), all published
+- ✅ Transcripts with per-cue timestamps; the transcript follows the video
+- ✅ Search across every meeting, grouped by meeting, with agenda matches
+- ✅ Agendas from the CPS portal, with times in the video
+- ✅ Official votes from the minutes (118), 95 placed in the video
+  automatically; the rest in Review times
+- ✅ Officials pages with every member's roll-call voting record
+- ✅ Review times screen for checking and correcting vote placements
+- ✅ Draft/publish workflow (pipeline creates drafts, a person publishes)
 
 ---
 
 ## What's not built yet
 
-**Phase 3 — Agenda structure**  
-Scraping agenda items from the CPS website and linking them to
-transcript timestamps. The CPS website HTML structure needs to be
-inspected before writing selectors.
+**Subcommittee meetings** — on the portal with show IDs and (narrative)
+minutes; need a body per meeting, a filter on the meeting list, and
+subcommittee pages. Residents often take part in these conversations —
+the site should never build pages or search facets for private
+individuals, only for officials.
 
-**Phase 4 — Public theme**  
-The WordPress theme that residents actually use. Currently the data
-is only accessible via the JSON API. Needs: meeting list page,
-individual meeting page with video + synchronized transcript, search UI.
+**Pages that follow an item across meetings** — one page per docket
+number (e.g. #26-125, tabled on 6/2 and 8/4, back on 9/1) built from
+existing data; a start on the `cr_issue` "issue threads".
 
-**Phase 5 — AI layer**  
-Meeting summaries, semantic search, issue clustering across meetings.
-Additive — the site works without this.
+**Caption improvement** — a correction pass on Cablecast captions from a
+Cambridge terms list (names first), then a timed test of Whisper on one
+meeting, with the transcript source labeled per meeting.
 
-**Vote extraction improvement**  
-Currently flags segments matching voting language patterns. Needs
-more Cambridge-specific tuning and linking to named officials.
+**Scheduled runs** — a weekly job on the Mac to ingest new meetings and
+pick up minutes.
 
-**Officials pages**  
-School Committee members are in the database but not yet linked to
-votes or displayed publicly.
+**Phase 5 — AI layer** — summaries, semantic search, issue clustering.
+Additive; the site works without it, and every AI element must be
+labeled with the model used.
 
 ---
 
@@ -258,7 +573,7 @@ supporting material: recommendation PDFs (`admin/recommendations/26-180.pdf`),
 motion/order PDFs (`admin/motion_order_files/…`), and presentations
 (Google Drive links). Attach these to meetings and agenda items so a
 resident can read the document being discussed next to the moment it's
-discussed. Not started — agenda and votes come first.
+discussed.
 
 ---
 
@@ -269,7 +584,10 @@ The Cablecast pipeline is generic. Any station running Cablecast with:
 - MediaScribe or Cablecast Cloud captions
 - Public VOD access
 
-...can use this pipeline with only the Show ID and base URL changed.
+...can use the caption pipeline with only the Show ID and base URL
+changed. The agenda and minutes steps are specific to the CPS portal;
+another district would need its own `scrape_agenda.py` and a check of
+how its minutes record roll calls.
 
 The key discovery — that accurate timestamps live in the HLS subtitle
 stream, not in any dedicated API endpoint — applies to all Cablecast
@@ -279,20 +597,13 @@ installations using cloud caption delivery.
 
 ## Next steps (toward NEACM, November 17)
 
-**Week of Sep 23:** Documentation (this), ingest more meetings  
-**Week of Sep 30:** WordPress theme Phase 1 (meeting list, search UI)  
-**Week of Oct 7:** WordPress theme Phase 2 (individual meeting pages)  
-**Week of Oct 14:** Polish, agenda scraper, officials pages  
+**Done (Sep 23–25):** theme, meeting pages with synced transcript,
+agenda + minutes pipeline, video times, officials, backfill of 2026,
+search, Review times  
+**Next:** work through Review times; subcommittee meetings; item-history
+pages; caption corrections  
 **Week of Oct 21:** AI layer if time allows, conference prep  
-**Week of Oct 28:** Demo rehearsal, presentation slides  
+**Week of Oct 28:** Demo rehearsal, presentation slides, an offline
+fallback for the demo (conference wifi)  
 **Week of Nov 3:** Buffer, final fixes  
-**Nov 17:** NEACM Conference presentation  
-
----
-
-## Reach out
-
-Stephen Walter, Brookline Interactive Group / Weird Machine  
-steve@brooklineinteractive.org  
-Community AI Project, Public Record Studio  
-publicrecord.studio
+**Nov 17:** NEACM Conference presentation

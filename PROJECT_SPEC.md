@@ -308,5 +308,3 @@ use. Here's how we built it with our values first."
 - Interest in co-developing a Cablecast adapter for MassAccess stations?
 - His experience with WordPress as display layer vs. static files
 - Open invitation to expand the pilot to other MassAccess stations
-
-Contact: steve@brooklineinteractive.org

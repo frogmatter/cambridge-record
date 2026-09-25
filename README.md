@@ -1,4 +1,9 @@
 # Cambridge Record — Local Pipeline
+
+> **Running the site day to day** — adding meetings, publishing, picking
+> up minutes, Review times, fixing mistakes — is covered in
+> [DocumentationV1.md → Working with meetings](DocumentationV1.md#working-with-meetings--day-to-day).
+> This file covers first-time setup.
 ## Setup instructions for your MacBook
 
 This folder contains the scripts that pull data from Cablecast and
@@ -93,6 +98,7 @@ python enrich_meetings.py --all
 | `match_agenda.py` | Places votes, agenda items and sections on the video timeline using the captions |
 | `enrich_meetings.py` | Adds agenda + official votes to ingested meetings, with video times (re-run to pick up late minutes) |
 | `backfill.py` | Ingests every full-committee meeting the CPS portal lists since a date (`--since 2026-01-01`) |
+| `edit_meeting.py` | Corrects a meeting's title or date in WordPress |
 | `officials.json` | School Committee roster (names, titles, terms, subcommittees, name as written in the minutes) |
 | `sync_officials.py` | Creates/updates Official pages in WordPress from `officials.json` |
 | `pipeline.db` | Local database tracking what's been ingested (created automatically) |

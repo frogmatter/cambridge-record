@@ -1,6 +1,5 @@
 # Draft: Email to Stephen Walter, BIG/Weird Machine
 
-To: steve@brooklineinteractive.org
 Subject: Public Record Studio → Cambridge pilot + MassAccess expansion
 
 ---
