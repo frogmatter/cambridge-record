@@ -5,7 +5,7 @@
  *              Single post per meeting — segments, agenda items, and votes
  *              stored as JSON in post meta. Designed for shared hosting.
  *              No plugin dependencies. REST API ready for the local pipeline.
- * Version:     0.4.2
+ * Version:     0.5.1
  * Author:      Matt / Cambridge Public Schools
  * License:     CC BY-SA 4.0
  * Site:        mediatechaction.com
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_PLUGIN_VERSION', '0.4.2' );
+define( 'CR_PLUGIN_VERSION', '0.5.1' );
 
 require_once __DIR__ . '/includes/review.php';
 
@@ -121,7 +121,7 @@ function cr_register_meta_fields() {
         'summary'                => 'string',   // AI or extractive summary
         'summary_origin'         => 'string',   // 'ai:gemini-flash' | 'extractive' | 'pending'
         'languages_available'    => 'string',   // comma-separated
-        'cr_status'              => 'string',   // 'processing' | 'ready' | 'published'
+        'cr_status'              => 'string',   // ingest progress: 'processing' | 'ready' (not visibility — that's post_status)
         'caption_corrections'    => 'integer',  // fixes applied from cambridge_terms.txt (originals kept per segment)
     ];
     cr_register_meta_group( 'cr_meeting', $meeting_scalars );
@@ -196,6 +196,10 @@ function cr_register_meta_group( $post_type, array $fields ) {
 //
 //    /wp-json/cambridge-record/v1/meetings
 //    Lightweight meeting index (no JSON blobs).
+//
+//    /wp-json/cambridge-record/v1/officials[/{id}]
+//    /wp-json/cambridge-record/v1/officials/{name}/votes
+//    Officials and voting records, from the vote index (3c).
 // ═══════════════════════════════════════════════════════
 
 add_action( 'rest_api_init', 'cr_register_rest_routes' );
@@ -259,6 +263,11 @@ function cr_register_rest_routes() {
         'callback'            => 'cr_official_record',
         'permission_callback' => '__return_true',
         'args'                => [ 'id' => [ 'sanitize_callback' => 'absint' ] ],
+    ] );
+    register_rest_route( 'cambridge-record/v1', '/officials/(?P<name>[^/]+)/votes', [
+        'methods'             => 'GET',
+        'callback'            => 'cr_official_votes_by_name',
+        'permission_callback' => '__return_true',
     ] );
 }
 
@@ -521,94 +530,173 @@ function cr_get_officials() {
     return array_map( function ( $o ) { unset( $o['_rank'], $o['_sort'] ); return $o; }, $officials );
 }
 
+/** Summary counts for a member with no votes yet. */
+function cr_empty_vote_summary() {
+    return [ 'votes' => 0, 'yea' => 0, 'nay' => 0, 'absent' => 0, 'present' => 0, 'abstain' => 0, 'dissents' => 0, 'meetings' => 0 ];
+}
+
 /**
  * Every roll-call vote cast by the member with this minutes_name, across
- * published meetings (newest first), plus summary counts.
+ * published meetings (newest first), plus summary counts — from the vote index.
  */
 function cr_voting_record( $minutes_name ) {
-    $key = cr_name_key( $minutes_name );
-    $record = [];
-    $summary = [ 'votes' => 0, 'yea' => 0, 'nay' => 0, 'absent' => 0, 'present' => 0, 'abstain' => 0, 'dissents' => 0, 'meetings' => 0 ];
-    if ( ! $key ) {
-        return [ $record, $summary ];
+    $index = cr_get_vote_index();
+    $entry = $index['members'][ cr_name_key( $minutes_name ) ] ?? null;
+    return $entry ? [ $entry['votes'], $entry['summary'] ] : [ [], cr_empty_vote_summary() ];
+}
+
+
+// ═══════════════════════════════════════════════════════
+// 3c. VOTE INDEX
+//     Every member's voting record, built once from all
+//     published meetings' votes_json and kept in the
+//     cr_vote_index option (not autoloaded), keyed by
+//     cr_name_key(). Any change that could alter a record
+//     — votes or date written (REST or Review times), a
+//     meeting saved, published, unpublished or deleted —
+//     drops the index; the next request rebuilds it.
+//
+//     Dropping rather than rebuilding on save matters: a
+//     REST update fires save_post *before* it writes meta,
+//     so a rebuild there would read the old votes_json.
+// ═══════════════════════════════════════════════════════
+
+/** The index, decoded once per request; pass $drop to forget it. */
+function cr_get_vote_index( $drop = false ) {
+    static $index = null;
+    if ( $drop ) {
+        $index = null;
+        return null;
     }
+    if ( $index === null ) {
+        $stored = get_option( 'cr_vote_index' );
+        $index  = $stored ? json_decode( $stored, true ) : null;
+        if ( ! is_array( $index ) ) {
+            $index = cr_build_vote_index();
+            update_option( 'cr_vote_index', wp_json_encode( $index ), false );
+        }
+    }
+    return $index;
+}
 
-    $meetings = get_posts( [
-        'post_type'      => 'cr_meeting',
-        'post_status'    => 'publish',
-        'posts_per_page' => -1,
-        'orderby'        => 'meta_value',
-        'meta_key'       => 'meeting_date',
-        'order'          => 'DESC',
-    ] );
+/** Records for every member named in a published meeting's roll calls. */
+function cr_build_vote_index() {
+    global $wpdb;
 
-    foreach ( $meetings as $m ) {
-        $votes = json_decode( get_post_meta( $m->ID, 'votes_json', true ) ?: '[]', true );
+    // Read the two meta fields directly: get_post_meta() would also load
+    // each meeting's ~1 MB segments_json into memory.
+    $rows = $wpdb->get_results(
+        "SELECT p.ID, d.meta_value AS meeting_date, v.meta_value AS votes_json
+           FROM {$wpdb->posts} p
+           JOIN {$wpdb->postmeta} d ON d.post_id = p.ID AND d.meta_key = 'meeting_date'
+           LEFT JOIN {$wpdb->postmeta} v ON v.post_id = p.ID AND v.meta_key = 'votes_json'
+          WHERE p.post_type = 'cr_meeting' AND p.post_status = 'publish'
+          ORDER BY d.meta_value DESC, p.ID DESC"
+    );
+
+    $members = [];
+    foreach ( $rows as $row ) {
+        $votes = json_decode( maybe_unserialize( $row->votes_json ) ?: '[]', true );
         if ( ! is_array( $votes ) ) {
             continue;
         }
-        $in_meeting = false;
+        $permalink = get_permalink( $row->ID );
+        $title     = get_the_title( $row->ID );
+        $in_meeting = [];
+
         foreach ( $votes as $v ) {
             if ( ( $v['source'] ?? '' ) !== 'minutes' ) {
                 continue;   // caption-flagged guesses have no per-member votes
             }
-            $cast = null;
-            $entry_candidate = null;
+            $passed     = $v['passed'] ?? true;
+            $procedural = cr_is_procedural_vote( $v );
+            $seen       = [];
+
             foreach ( $v['roll_call'] ?? [] as $entry ) {
-                if ( cr_name_key( $entry['member'] ?? '' ) === $key ) {
-                    $cast = $entry['vote'];
-                    $entry_candidate = $entry['candidate'] ?? null;   // elections: who they voted for
-                    break;
+                $key  = cr_name_key( $entry['member'] ?? '' );
+                $cast = $entry['vote'] ?? null;
+                if ( ! $key || $cast === null || isset( $seen[ $key ] ) ) {
+                    continue;
                 }
-            }
-            if ( $cast === null ) {
-                continue;
-            }
-            $in_meeting = true;
+                $seen[ $key ] = true;
+                $members[ $key ] ??= [ 'summary' => cr_empty_vote_summary(), 'votes' => [] ];
+                $m = &$members[ $key ];
 
-            // Dissent: voted against the outcome (nay on a passed motion, yea on a failed one)
-            $passed  = $v['passed'] ?? true;
-            $dissent = ( $cast === 'NAY' && $passed ) || ( $cast === 'YEA' && ! $passed );
+                // Dissent: voted against the outcome (nay on a passed motion, yea on a failed one)
+                $dissent = ( $cast === 'NAY' && $passed ) || ( $cast === 'YEA' && ! $passed );
 
-            $summary['votes']++;
-            $bucket = strtolower( $cast === 'RECUSED' ? 'abstain' : $cast );
-            if ( isset( $summary[ $bucket ] ) ) {
-                $summary[ $bucket ]++;
-            }
-            if ( $dissent ) {
-                $summary['dissents']++;
-            }
+                $m['summary']['votes']++;
+                $bucket = strtolower( $cast === 'RECUSED' ? 'abstain' : $cast );
+                if ( isset( $m['summary'][ $bucket ] ) ) {
+                    $m['summary'][ $bucket ]++;
+                }
+                if ( $dissent ) {
+                    $m['summary']['dissents']++;
+                }
+                if ( ! isset( $in_meeting[ $key ] ) ) {
+                    $in_meeting[ $key ] = true;
+                    $m['summary']['meetings']++;
+                }
 
-            $permalink = get_permalink( $m->ID );
-            $record[] = [
-                'meeting_id'    => $m->ID,
-                'meeting_title' => get_the_title( $m->ID ),
-                'meeting_date'  => get_post_meta( $m->ID, 'meeting_date', true ),
-                'meeting_url'   => $permalink,
-                'vote_index'    => $v['index'] ?? null,
-                'motion_text'   => $v['motion_text'] ?? '',
-                'items'         => $v['items'] ?? [],
-                'section_title' => $v['section_title'] ?? null,
-                'result'        => $v['result'] ?? '',
-                'passed'        => $passed,
-                'vote_for'      => $v['vote_for'] ?? null,
-                'vote_against'  => $v['vote_against'] ?? null,
-                'member_vote'   => $cast,
-                'member_candidate' => $cast === 'CANDIDATE' ? ( $entry_candidate ?? null ) : null,
-                'dissent'       => $dissent,
-                'procedural'    => cr_is_procedural_vote( $v ),
-                'start_seconds' => $v['start_seconds'] ?? null,
-                'moment_url'    => isset( $v['start_seconds'] )
-                    ? $permalink . '#t=' . (int) $v['start_seconds']
-                    : $permalink,
-            ];
-        }
-        if ( $in_meeting ) {
-            $summary['meetings']++;
+                $m['votes'][] = [
+                    'meeting_id'    => (int) $row->ID,
+                    'meeting_title' => $title,
+                    'meeting_date'  => $row->meeting_date,
+                    'meeting_url'   => $permalink,
+                    'vote_index'    => $v['index'] ?? null,
+                    'motion_text'   => $v['motion_text'] ?? '',
+                    'items'         => $v['items'] ?? [],
+                    'section_title' => $v['section_title'] ?? null,
+                    'result'        => $v['result'] ?? '',
+                    'passed'        => $passed,
+                    'vote_for'      => $v['vote_for'] ?? null,
+                    'vote_against'  => $v['vote_against'] ?? null,
+                    'member_vote'   => $cast,
+                    'member_candidate' => $cast === 'CANDIDATE' ? ( $entry['candidate'] ?? null ) : null,
+                    'dissent'       => $dissent,
+                    'procedural'    => $procedural,
+                    'start_seconds' => $v['start_seconds'] ?? null,
+                    'moment_url'    => isset( $v['start_seconds'] )
+                        ? $permalink . '#t=' . (int) $v['start_seconds']
+                        : $permalink,
+                ];
+                unset( $m );
+            }
         }
     }
-    return [ $record, $summary ];
+
+    return [ 'built_at' => gmdate( 'c' ), 'meeting_count' => count( $rows ), 'members' => $members ];
 }
+
+function cr_drop_vote_index() {
+    delete_option( 'cr_vote_index' );
+    cr_get_vote_index( true );
+}
+
+add_action( 'save_post_cr_meeting', 'cr_drop_vote_index' );
+
+add_action( 'transition_post_status', function ( $new, $old, $post ) {
+    if ( $post->post_type === 'cr_meeting' && $new !== $old ) {
+        cr_drop_vote_index();
+    }
+}, 10, 3 );
+
+add_action( 'deleted_post', function ( $post_id, $post = null ) {
+    if ( ( $post->post_type ?? get_post_type( $post_id ) ) === 'cr_meeting' ) {
+        cr_drop_vote_index();
+    }
+}, 10, 2 );
+
+// Meta writes: REST updates write meta after save_post; Review times writes it directly.
+foreach ( [ 'added_post_meta', 'updated_post_meta', 'deleted_post_meta' ] as $cr_meta_hook ) {
+    add_action( $cr_meta_hook, function ( $meta_id, $post_id, $meta_key ) {
+        if ( in_array( $meta_key, [ 'votes_json', 'meeting_date' ], true )
+            && get_post_type( $post_id ) === 'cr_meeting' ) {
+            cr_drop_vote_index();
+        }
+    }, 10, 3 );
+}
+unset( $cr_meta_hook );
 
 function cr_officials_index( WP_REST_Request $request ) {
     $officials = array_map( function ( $o ) {
@@ -633,6 +721,31 @@ function cr_official_record( WP_REST_Request $request ) {
     return rest_ensure_response( $official + [ 'summary' => $summary, 'votes' => $record ] );
 }
 
+/**
+ * One member's record by name, e.g. /officials/dube/votes or
+ * /officials/de-paula-santos/votes — matched like the minutes are
+ * (cr_name_key: title, case, spaces and punctuation ignored).
+ */
+function cr_official_votes_by_name( WP_REST_Request $request ) {
+    $key = cr_name_key( urldecode( (string) $request['name'] ) );
+    $official = null;
+    foreach ( cr_get_officials() as $o ) {
+        if ( $key && cr_name_key( $o['minutes_name'] ) === $key ) {
+            $official = $o;
+        }
+    }
+    $entry = cr_get_vote_index()['members'][ $key ] ?? null;
+    if ( ! $official && ! $entry ) {
+        return new WP_Error( 'cr_not_found', 'No official or votes for that name', [ 'status' => 404 ] );
+    }
+    return rest_ensure_response( [
+        'name_key' => $key,
+        'official' => $official,
+        'summary'  => $entry['summary'] ?? cr_empty_vote_summary(),
+        'votes'    => $entry['votes'] ?? [],
+    ] );
+}
+
 
 // ═══════════════════════════════════════════════════════
 // 4. INCREASE REST API PAGE SIZE FOR MEETINGS
@@ -651,7 +764,7 @@ add_filter( 'rest_cr_meeting_query', function( $args, $request ) {
 // ═══════════════════════════════════════════════════════
 // 5. ADMIN COLUMNS
 //    Makes the Meetings list in WP admin more useful
-//    by showing date, publish status, pipeline status,
+//    by showing date, publish status, ingest progress,
 //    and segment count.
 // ═══════════════════════════════════════════════════════
 
@@ -663,7 +776,7 @@ add_filter( 'manage_cr_meeting_posts_columns', function( $cols ) {
         'segment_count' => 'Segments',
         'vote_count'    => 'Votes',
         'publish_state' => 'Published',
-        'cr_status'     => 'Pipeline',
+        'cr_status'     => 'Ingest',
     ];
 } );
 
@@ -697,18 +810,19 @@ add_action( 'manage_cr_meeting_posts_custom_column', function( $col, $post_id ) 
             );
             break;
         case 'cr_status':
-            // Pipeline progress, written by ingest_cablecast.py.
+            // Ingest progress, written by ingest_cablecast.py. Says nothing
+            // about visibility — that's the Published column.
             $status = get_post_meta( $post_id, 'cr_status', true );
-            $color  = match( $status ) {
-                'published'  => '#2ecc71',
-                'ready'      => '#3498db',
-                'processing' => '#e67e22',
-                default      => '#999',
+            [ $label, $color ] = match( $status ) {
+                'ready'      => [ 'Transcript in', '#3498db' ],
+                'processing' => [ 'Ingesting…', '#e67e22' ],
+                default      => [ $status ?: 'unknown', '#999' ],
             };
             printf(
-                '<span style="color:%s;font-weight:600;">%s</span>',
+                '<span style="color:%s;font-weight:600;" title="%s">%s</span>',
                 esc_attr( $color ),
-                esc_html( $status ?: 'unknown' )
+                esc_attr( 'Pipeline progress only — whether residents can see this meeting is in the Published column.' ),
+                esc_html( $label )
             );
             break;
     }
@@ -761,6 +875,7 @@ add_action( 'manage_cr_official_posts_custom_column', function( $col, $post_id )
 add_action( 'init', function () {
     if ( get_option( 'cr_plugin_version' ) !== CR_PLUGIN_VERSION ) {
         flush_rewrite_rules();
+        cr_drop_vote_index();   // the index format may have changed
         update_option( 'cr_plugin_version', CR_PLUGIN_VERSION );
     }
 }, 20 );

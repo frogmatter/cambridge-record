@@ -6,7 +6,7 @@
 **Started:** September 2026  
 **Target:** NEACM Conference, November 17, 2026  
 **Author:** Matt, Media Arts Manager, Cambridge Public Schools  
-**Current versions:** plugin 0.4.2 · theme 0.4.3
+**Current versions:** plugin 0.5.1 · theme 0.4.3
 
 ---
 
@@ -90,7 +90,9 @@ Open the draft's **Preview** and check:
 Then publish it — one at a time from the editor, or several at once from
 **Meetings → filter to Drafts → select → Bulk actions → Edit → Status:
 Published**. The **Published** column on the Meetings list shows which
-meetings residents can see.
+meetings residents can see. The **Ingest** column beside it ("Ingesting…",
+"Transcript in") is only the pipeline's progress — it never makes a meeting
+public.
 
 ### What publishing does
 
@@ -502,7 +504,15 @@ automatically.
   before minutes are posted), with roll calls, times and match scores
 - `review_json` — people's decisions from Review times
 - `meeting_date`, `meeting_body`, `cablecast_embed_url`, `agenda_url`,
-  `languages_available`, `cr_status`, etc.
+  `languages_available`, `cr_status` (ingest progress: `processing` →
+  `ready`; visibility is WordPress's own post status), etc.
+
+**Vote index** (`cr_vote_index` option): every member's voting record,
+built from all published meetings' `votes_json` and keyed by surname. The
+officials endpoints read it instead of re-reading every meeting. Anything
+that could change a record — votes or a date written by the pipeline or
+Review times, a meeting published, unpublished or deleted, a plugin update
+— drops it, and the next request rebuilds it.
 
 **Meta on `cr_official`:** `full_name`, `official_title`, `minutes_name`
 (surname as the minutes write it), `is_voting_member`, `term_start`,
@@ -520,6 +530,9 @@ then matches segments in PHP.
   newest first, with per-meeting totals and matching agenda items
 - `GET /wp-json/cambridge-record/v1/officials` — members + vote summaries
 - `GET /wp-json/cambridge-record/v1/officials/{id}` — one member's record
+- `GET /wp-json/cambridge-record/v1/officials/{name}/votes` — the same by
+  name as the minutes write it (`dube`, `de-paula-santos`; title, case and
+  punctuation ignored)
 - `GET|POST /wp-json/cambridge-record/v1/review` — Review times (editors only)
 
 ---
@@ -604,6 +617,12 @@ chair's "on a vote of 7 in the affirmative" fills in the tally.
 The 1/6/26 minutes list a consent item before items it followed; others
 have "PRESNT", "Memer", a stray "YEA;". Minutes also sometimes say "on a
 voice vote" and then list every member's vote — treated as a roll call.
+
+**14. `save_post` fires before REST meta is written**  
+A REST update (`POST /wp/v2/meeting/{id}` with `meta`) saves the post,
+fires `save_post`, and only then writes the meta. Anything rebuilt on
+`save_post` reads the old values — so the vote index is *dropped* on save
+and on meta writes, and rebuilt on the next read.
 
 ---
 
