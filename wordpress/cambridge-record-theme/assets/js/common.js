@@ -30,6 +30,17 @@
         return res.json();
     }
 
+    /** Every published meeting, following the index's pages. */
+    async function allMeetings() {
+        const meetings = [];
+        for ( let page = 1, pages = 1; page <= pages; page++ ) {
+            const data = await api( 'cambridge-record/v1/meetings', { page, per_page: 200 } );
+            meetings.push( ...( data.meetings || [] ) );
+            pages = data.total_pages || 1;   // plugin < 0.4.2 isn't paged
+        }
+        return meetings;
+    }
+
     /** Parse a JSON meta string; returns fallback on empty or invalid input. */
     function parseJson( value, fallback = [] ) {
         if ( Array.isArray( value ) ) return value;
@@ -153,7 +164,7 @@
     }
 
     window.CR = {
-        config, api, parseJson, fmtTime, parseDate, fmtDate, schoolYear,
+        config, api, allMeetings, parseJson, fmtTime, parseDate, fmtDate, schoolYear,
         el, append, escapeRegExp, highlight, momentUrl, status, debounce, voteLabel, tallyText,
     };
 } )();

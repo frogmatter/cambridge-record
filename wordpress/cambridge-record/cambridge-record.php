@@ -5,7 +5,7 @@
  *              Single post per meeting — segments, agenda items, and votes
  *              stored as JSON in post meta. Designed for shared hosting.
  *              No plugin dependencies. REST API ready for the local pipeline.
- * Version:     0.4.1
+ * Version:     0.4.2
  * Author:      Matt / Cambridge Public Schools
  * License:     CC BY-SA 4.0
  * Site:        mediatechaction.com
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_PLUGIN_VERSION', '0.4.1' );
+define( 'CR_PLUGIN_VERSION', '0.4.2' );
 
 require_once __DIR__ . '/includes/review.php';
 
@@ -233,6 +233,19 @@ function cr_register_rest_routes() {
         'methods'             => 'GET',
         'callback'            => 'cr_meeting_index',
         'permission_callback' => '__return_true',
+        'args' => [
+            'page' => [
+                'default'           => 1,
+                'type'              => 'integer',
+                'sanitize_callback' => 'absint',
+            ],
+            'per_page' => [
+                'default'           => 20,
+                'type'              => 'integer',
+                'sanitize_callback' => 'absint',
+                'description'       => 'Meetings per page (max 200)',
+            ],
+        ],
     ] );
 
     // ── Officials + voting records ────────────────────
@@ -400,19 +413,25 @@ function cr_search_normalize( $text ) {
 
 
 /**
- * Lightweight meeting index — returns all published meetings
- * with scalar meta only (no JSON blobs).
- * Used by the theme's meeting list page.
+ * Lightweight meeting index — published meetings, newest first,
+ * with scalar meta only (no JSON blobs). Paged with ?page and
+ * ?per_page (default 20, max 200); callers that need every meeting
+ * (the theme's meeting list and search) follow total_pages.
  */
 function cr_meeting_index( WP_REST_Request $request ) {
-    $meetings = get_posts( [
+    $page     = max( (int) $request->get_param( 'page' ), 1 );
+    $per_page = min( max( (int) $request->get_param( 'per_page' ), 1 ), 200 );
+
+    $query = new WP_Query( [
         'post_type'      => 'cr_meeting',
         'post_status'    => 'publish',
-        'posts_per_page' => 100,
+        'posts_per_page' => $per_page,
+        'paged'          => $page,
         'orderby'        => 'meta_value',
         'meta_key'       => 'meeting_date',
         'order'          => 'DESC',
     ] );
+    $meetings = $query->posts;
 
     $index = array_map( function( $m ) {
         $meta = get_post_meta( $m->ID );
@@ -433,7 +452,13 @@ function cr_meeting_index( WP_REST_Request $request ) {
         ];
     }, $meetings );
 
-    return rest_ensure_response( [ 'meetings' => $index ] );
+    return rest_ensure_response( [
+        'meetings'    => $index,
+        'page'        => $page,
+        'per_page'    => $per_page,
+        'total_count' => (int) $query->found_posts,
+        'total_pages' => (int) $query->max_num_pages,
+    ] );
 }
 
 

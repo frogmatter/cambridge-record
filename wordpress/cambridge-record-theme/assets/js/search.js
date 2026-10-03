@@ -6,7 +6,7 @@
 ( function () {
     'use strict';
 
-    const { api, el, fmtDate, fmtTime, highlight, momentUrl, status, config } = window.CR;
+    const { api, allMeetings, el, fmtDate, fmtTime, highlight, momentUrl, status, config } = window.CR;
 
     const LIMIT = 50; // the endpoint caps results at 50
 
@@ -21,8 +21,8 @@
     let permalinksPromise = null;
     function permalinks() {
         if ( ! permalinksPromise ) {
-            permalinksPromise = api( 'cambridge-record/v1/meetings' )
-                .then( ( d ) => new Map( ( d.meetings || [] ).map( ( m ) => [ m.id, m.permalink ] ) ) )
+            permalinksPromise = allMeetings()
+                .then( ( meetings ) => new Map( meetings.map( ( m ) => [ m.id, m.permalink ] ) ) )
                 .catch( () => new Map() );
         }
         return permalinksPromise;

@@ -5,7 +5,7 @@
 ( function () {
     'use strict';
 
-    const { api, el, fmtDate, schoolYear, status, debounce } = window.CR;
+    const { allMeetings, el, fmtDate, schoolYear, status, debounce } = window.CR;
 
     const listEl   = document.getElementById( 'meeting-list' );
     const filterEl = document.getElementById( 'meeting-filter' );
@@ -86,8 +86,7 @@
 
     async function load() {
         try {
-            const data = await api( 'cambridge-record/v1/meetings' );
-            meetings = data.meetings || [];
+            meetings = await allMeetings();
             buildYearSelect();
             render();
         } catch ( e ) {

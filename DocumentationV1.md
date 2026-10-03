@@ -6,7 +6,7 @@
 **Started:** September 2026  
 **Target:** NEACM Conference, November 17, 2026  
 **Author:** Matt, Media Arts Manager, Cambridge Public Schools  
-**Current versions:** plugin 0.4.1 · theme 0.4.2
+**Current versions:** plugin 0.4.2 · theme 0.4.3
 
 ---
 
@@ -513,7 +513,9 @@ search indexes. The search endpoint finds candidate meetings that way,
 then matches segments in PHP.
 
 **REST endpoints** (public unless noted):
-- `GET /wp-json/cambridge-record/v1/meetings` — published meetings
+- `GET /wp-json/cambridge-record/v1/meetings?page=1&per_page=20` — published
+  meetings, newest first (`per_page` max 200), with `total_count` and
+  `total_pages`
 - `GET /wp-json/cambridge-record/v1/search?q=…` — grouped by meeting,
   newest first, with per-meeting totals and matching agenda items
 - `GET /wp-json/cambridge-record/v1/officials` — members + vote summaries
