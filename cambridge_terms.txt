@@ -127,6 +127,7 @@ C.R.L.S.|CRLS
 CLS|CRLS
 ?Searles|CRLS
 ?Sierra Ellis|CRLS
+Charles Library|CRLS Library
 Cambridge Ridge|Cambridge Rindge
 CRLS
 Cambridge Rindge and Latin School
@@ -214,6 +215,7 @@ MCASS|MCAS
 MMCAS|MCAS
 DESESE|DESE
 DESESEE|DESE
+?DC|DESE
 Suintendent|superintendent
 Sutendent|superintendent
 MTSS
@@ -245,6 +247,7 @@ Jacomar|Jaikumar
 Jacoar|Jaikumar
 Jakemar|Jaikumar
 Jakemore|Jaikumar
+?Jacob Martin|Jaikumar and
 
 
 # ── DUBE MISRECOGNITIONS ──────────────────────────────────────────────────────
@@ -277,6 +280,8 @@ Miss Aragon|Miss Amigone
 Jennifer Amigone
 Anne Coburn|Ann Coburn
 Chris Monteiro|Chris Montero
+Kristo|Christo
+Shadae Harris
 Gately Gehant
 
 
