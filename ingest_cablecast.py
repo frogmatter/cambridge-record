@@ -23,6 +23,7 @@ from pathlib import Path
 import requests
 from dotenv import load_dotenv
 from fetch_captions import fetch_hls_captions
+from scrape_agenda import FULL_COMMITTEE, find_portal_meeting, meeting_title
 
 load_dotenv()
 
@@ -415,16 +416,28 @@ def flag_votes(segments):
 
 # ── WordPress push ─────────────────────────────────────────────────────────────
 
-def create_wp_meeting(show, segment_count, transcript_urls, show_id):
+def meeting_identity(show, portal):
+    """
+    (title, date, body) for a new meeting. The CPS portal is the reference:
+    Cablecast titles and dates are sometimes wrong (show 11317 is dated
+    2025-03-19 for a 3/19/26 meeting). Falls back to Cablecast for shows
+    the portal doesn't link.
+    """
+    # eventDate format: 2026-09-15T00:00:00-04:00
+    cc_date  = (show.get('eventDate') or '')[:10]
+    cc_title = show.get('cgTitle') or show.get('title') or f'School Committee {cc_date}'
+    if portal and not portal.get('body'):
+        log.warning(f"  The portal lists this as \"{portal['meeting_type']}\", which isn't a body we ingest "
+                    f"(see scrape_agenda.classify_meeting) — using Cablecast's title and date")
+    if not portal or not portal.get('body'):
+        return cc_title, cc_date, FULL_COMMITTEE
+    if cc_date != portal['date']:
+        log.warning(f"  Cablecast date {cc_date} ≠ portal date {portal['date']} — using the portal's")
+    return meeting_title(portal), portal['date'], portal['body']
+
+
+def create_wp_meeting(title, date_str, body, show, segment_count, transcript_urls, show_id):
     """Create a cr_meeting post in WordPress. Returns WP post ID."""
-
-    date_str = ''
-    raw_date = show.get('eventDate', '')
-    if raw_date:
-        # eventDate format: 2026-09-15T00:00:00-04:00
-        date_str = raw_date[:10]
-
-    title = show.get('cgTitle') or show.get('title', f'School Committee {date_str}')
     langs = ','.join(transcript_urls.keys())
 
     payload = {
@@ -432,7 +445,7 @@ def create_wp_meeting(show, segment_count, transcript_urls, show_id):
         'status': 'draft',
         'meta': {
             'meeting_date':        date_str,
-            'meeting_body':        'Cambridge School Committee',
+            'meeting_body':        body,
             'cablecast_vod_id':    show.get('vods', [None])[0],
             'cablecast_embed_url': build_embed_url(show_id),
             'segment_count':       segment_count,
@@ -509,9 +522,11 @@ def push_segments_json(wp_id, segments, show_id):
 
 # ── Main pipeline ──────────────────────────────────────────────────────────────
 
-def ingest_show(show_id, conn, dry_run=False, enrich=True):
+def ingest_show(show_id, conn, dry_run=False, enrich=True, portal=None):
     """Ingest one School Committee show into WordPress.
-    enrich=False skips the agenda/minutes step (backfill.py runs it itself)."""
+    enrich=False skips the agenda/minutes step (backfill.py runs it itself).
+    portal is the show's CPS portal row (looked up if not given); its
+    title, date and body win over Cablecast's."""
     log.info(f'Processing show {show_id}...')
 
     if already_ingested(conn, show_id):
@@ -520,9 +535,12 @@ def ingest_show(show_id, conn, dry_run=False, enrich=True):
 
     try:
         show = get_show(show_id)
-        title = show.get('cgTitle') or show.get('title', '?')
-        date  = (show.get('eventDate') or '')[:10]
-        log.info(f'  Title: {title}  |  Date: {date}')
+        if portal is None:
+            portal = find_portal_meeting(show_id)
+            if portal is None:
+                log.warning('  Not linked from the CPS portal — using Cablecast\'s title and date')
+        title, date, body = meeting_identity(show, portal)
+        log.info(f'  Title: {title}  |  Date: {date}  |  Body: {body}')
 
         transcript_urls = get_transcript_urls(show)
         if 'en' not in transcript_urls:
@@ -551,7 +569,7 @@ def ingest_show(show_id, conn, dry_run=False, enrich=True):
             log.info(f'  [DRY RUN] Would create WP post and push segments')
             return True
 
-        wp_id = create_wp_meeting(show, len(segments), transcript_urls, show_id)
+        wp_id = create_wp_meeting(title, date, body, show, len(segments), transcript_urls, show_id)
         log.info(f'  Created WordPress post ID: {wp_id}')
 
         push_segments_json(wp_id, segments, show_id)

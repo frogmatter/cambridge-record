@@ -66,15 +66,26 @@ python backfill.py --since 2026-09-01              # ingest it
 ```
 
 `backfill.py` reads the CPS portal's meeting list, where each row links its
-video by Cablecast show ID, and ingests every full-committee meeting (Regular
-and Special) not yet ingested. It's safe to re-run — already-ingested
-meetings are skipped. It ends with a summary that flags any meeting whose
-Cablecast date disagrees with the portal's (see *Fixing a wrong title or
-date* below).
+video by Cablecast show ID, and ingests every meeting not yet ingested: the
+full committee (Regular and Special Meetings, Budget Workshops, Retreats)
+and the standing subcommittees. Add `--full-only` to skip subcommittees.
+It's safe to re-run — already-ingested meetings are skipped.
 
-For one specific video: `python ingest_cablecast.py --show 11522`.
+A new meeting's **title, date and body come from the portal**, not
+Cablecast — Cablecast had three wrong dates among the 2026 subcommittee
+recordings alone. The log warns when the two disagree; fix the date in
+Cablecast too. Titles follow one pattern: "School Committee Regular
+Meeting 9/1/26", "Governance Subcommittee Meeting 2/25/26".
 
-Subcommittee meetings are not ingested yet (see *What's not built yet*).
+The portal's meeting type is free text ("Building & Grounds Sub-Committee",
+"Regular Meting"), so `classify_meeting()` in `scrape_agenda.py` matches
+keywords to one name per body (`meeting_body`). Cancelled meetings,
+executive sessions, joint roundtables with the City Council and ad hoc
+subcommittees aren't ingested. Check what it makes of a row with
+`python scrape_agenda.py --show ID`.
+
+For one specific video: `python ingest_cablecast.py --show 11522` (it looks
+the show up on the portal too).
 
 ### Before you publish a meeting
 
@@ -642,10 +653,14 @@ and on meta writes, and rebuilt on the next read.
 
 ## What's not built yet
 
-**Subcommittee meetings** — on the portal with show IDs and (narrative)
-minutes; need a body per meeting, a filter on the meeting list, and
-subcommittee pages. Residents often take part in these conversations —
-the site should never build pages or search facets for private
+**Subcommittee meetings — the site side.** The 2026 subcommittee meetings
+are ingested as drafts (October 3). Their minutes are narrative, with no
+roll calls, and most have no agenda page, so their meeting pages are a
+transcript only. Still to do: a body filter on the meeting list and in
+search, subcommittee pages, and a description for meetings without an
+agenda (the minutes and notice state the "call of the meeting").
+Residents often take part in these conversations, and the minutes name
+them — the site should never build pages or search facets for private
 individuals, only for officials.
 
 **Pages that follow an item across meetings** — one page per docket

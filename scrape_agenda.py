@@ -32,6 +32,58 @@ SECTION_RE    = re.compile(r'^(\d{1,2}[a-d]?)\.\s+(.+?)\s*:?\s*$')
 SECTION_TYPES = {'7d': 'recommendation', '8': 'recommendation', '10': 'resolution', '12': 'late_order'}
 
 
+# ── Which body met ─────────────────────────────────────────────────────────────
+# The portal's meeting type is free text ("Building & Grounds Sub-Committee",
+# "Regular Meeting of the School Committee", "Cancelled: Cancelled: …"), so
+# match on keywords. First match wins.
+
+FULL_COMMITTEE = 'Cambridge School Committee'
+
+SUBCOMMITTEES = [
+    (r'governance',                                  'Governance Subcommittee'),
+    (r'buildings?\s*(and|&)\s*grounds',              'Buildings and Grounds Subcommittee'),
+    (r'curriculum',                                  'Curriculum and Achievement Subcommittee'),
+    (r'communications?|community relations',         'Communications and Community Relations Subcommittee'),
+    (r'special education',                           'Special Education and Student Supports Subcommittee'),
+    (r'school climate',                              'School Climate Subcommittee'),
+    (r'budget sub',                                  'Budget Subcommittee'),
+]
+FULL_COMMITTEE_KINDS = [
+    (r'regular',                                     'Regular Meeting'),
+    (r'budget workshop',                             'Budget Workshop'),
+    (r'special meeting',                             'Special Meeting'),
+    (r'organizational',                              'Organizational Meeting'),
+    (r'retreat',                                     'Retreat'),
+]
+
+
+def classify_meeting(meeting_type):
+    """
+    (body, kind) for a portal meeting type, or (None, None) for meetings we
+    don't ingest: cancelled ones, executive sessions, joint roundtables
+    with the City Council, City Council hearings, ad hoc subcommittees.
+    """
+    t = meeting_type.lower()
+    if re.search(r'cancel|roundtable|city council|ad[- ]?hoc', t):
+        return None, None
+    for pattern, body in SUBCOMMITTEES:
+        if re.search(pattern, t):
+            return body, 'Subcommittee Meeting'
+    for pattern, kind in FULL_COMMITTEE_KINDS:
+        if re.search(pattern, t):
+            return FULL_COMMITTEE, kind
+    return None, None
+
+
+def meeting_title(meeting):
+    """'School Committee Regular Meeting 9/1/26', 'Governance Subcommittee Meeting 2/25/26'."""
+    y, mo, d = meeting['date'].split('-')
+    short = f'{int(mo)}/{int(d)}/{y[2:]}'
+    if meeting['body'] == FULL_COMMITTEE:
+        return f"School Committee {meeting['kind']} {short}"
+    return f"{meeting['body']} Meeting {short}"
+
+
 def fetch(url):
     r = requests.get(url, headers=HEADERS, timeout=30)
     r.raise_for_status()
@@ -43,8 +95,9 @@ def fetch(url):
 def get_portal_meetings():
     """
     Parse the portal's meeting table. Returns a list of dicts:
-        {date, meeting_type, location, portal_meeting_id, show_id,
+        {date, meeting_type, body, kind, location, portal_meeting_id, show_id,
          agenda_url, minutes_url, notice_url, presentations}
+    body is None for meetings we don't ingest (see classify_meeting).
     """
     soup = BeautifulSoup(fetch(PORTAL_URL).text, 'lxml')
     meetings = []
@@ -71,9 +124,13 @@ def get_portal_meetings():
         if not portal_id:
             portal_id = re.search(r'/(\d+)_\d{4}-\d{2}-\d{2}', links.get('Minutes', ''))
 
+        meeting_type = tds[2].get_text(' ', strip=True)
+        body, kind = classify_meeting(meeting_type)
         meetings.append({
             'date':              tds[0].get_text(strip=True),
-            'meeting_type':      tds[2].get_text(' ', strip=True),
+            'meeting_type':      meeting_type,
+            'body':              body,
+            'kind':              kind,
             'location':          tds[5].get_text(' ', strip=True),
             'portal_meeting_id': int(portal_id.group(1)) if portal_id else None,
             'show_id':           int(show.group(1)) if show else None,
@@ -278,6 +335,7 @@ def main():
         return
 
     print(f"{meeting['date']}  {meeting['meeting_type']}  (portal meeting {meeting['portal_meeting_id']})")
+    print(f"  body:    {meeting['body'] or '— not ingested'}")
     print(f"  agenda:  {meeting['agenda_url'] or '—'}")
     print(f"  minutes: {meeting['minutes_url'] or 'not posted yet'}")
     for item in items:

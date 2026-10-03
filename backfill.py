@@ -2,8 +2,10 @@
 Cambridge Record — backfill meetings from the CPS portal
 
 Walks the portal's meeting list (each row links its video by Cablecast show
-ID) and, for every full-committee meeting not yet ingested: ingests the
-captions, then adds the agenda and official votes (enrich_meetings.py).
+ID) and, for every meeting not yet ingested — full committee and standing
+subcommittees (see scrape_agenda.classify_meeting) — ingests the captions,
+then adds the agenda and official votes (enrich_meetings.py). Title, date
+and body come from the portal, not Cablecast.
 
 New meetings arrive in WordPress as drafts — publish them after review
 (Meetings → select → Bulk actions → Edit → Status: Published).
@@ -12,6 +14,7 @@ Usage:
     python backfill.py --since 2026-01-01 --dry-run    # list what would be ingested
     python backfill.py --since 2026-01-01              # ingest them
     python backfill.py --since 2026-01-01 --limit 2    # just the first two
+    python backfill.py --since 2026-01-01 --full-only  # skip subcommittees
 """
 
 import argparse
@@ -21,15 +24,9 @@ import time
 
 from enrich_meetings import enrich_show
 from ingest_cablecast import DB_PATH, already_ingested, ingest_show, init_db
-from scrape_agenda import get_portal_meetings
+from scrape_agenda import FULL_COMMITTEE, get_portal_meetings, meeting_title
 
 log = logging.getLogger(__name__)
-
-FULL_COMMITTEE = ('regular meeting', 'special meeting')
-
-
-def is_full_committee(meeting):
-    return any(k in meeting['meeting_type'].lower() for k in FULL_COMMITTEE)
 
 
 def main():
@@ -38,6 +35,7 @@ def main():
     parser.add_argument('--until', help='YYYY-MM-DD — latest meeting date')
     parser.add_argument('--limit', type=int, help='Stop after this many new meetings')
     parser.add_argument('--dry-run', action='store_true', help='List meetings without ingesting')
+    parser.add_argument('--full-only', action='store_true', help='Full committee only — skip subcommittees')
     args = parser.parse_args()
 
     conn = sqlite3.connect(DB_PATH)
@@ -46,7 +44,8 @@ def main():
     portal = get_portal_meetings()
     todo = sorted(
         (m for m in portal
-         if m['show_id'] and is_full_committee(m)
+         if m['show_id'] and m['body']
+         and (not args.full_only or m['body'] == FULL_COMMITTEE)
          and m['date'] >= args.since and (not args.until or m['date'] <= args.until)
          and not already_ingested(conn, m['show_id'])),
         key=lambda m: m['date'],
@@ -54,16 +53,16 @@ def main():
 
     log.info(f'{len(todo)} meeting(s) to backfill')
     for m in todo:
-        log.info(f"  {m['date']}  show {m['show_id']}  {m['meeting_type']}  "
+        log.info(f"  {m['date']}  show {m['show_id']}  {meeting_title(m)}  "
                  f"(agenda: {'yes' if m['agenda_url'] else 'no'}, minutes: {'yes' if m['minutes_url'] else 'not yet'})")
     if args.dry_run:
         return
 
     results = []
     for m in todo:
-        ok = ingest_show(m['show_id'], conn, enrich=False)
+        ok = ingest_show(m['show_id'], conn, enrich=False, portal=m)
         row = conn.execute('SELECT wp_meeting_id FROM ingested_shows WHERE cablecast_show_id = ?', (m['show_id'],)).fetchone()
-        summary = {'show_id': m['show_id'], 'date': m['date'], 'type': m['meeting_type'], 'ok': ok and row and row[0]}
+        summary = {'show_id': m['show_id'], 'date': m['date'], 'type': meeting_title(m), 'ok': ok and row and row[0]}
         if summary['ok']:
             try:
                 summary.update(enrich_show(m['show_id'], row[0], portal))

@@ -196,6 +196,8 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
     }
     if portal['agenda_url']:
         meta['agenda_url'] = portal['agenda_url']
+    if portal.get('body'):
+        meta['meeting_body'] = portal['body']
     if votes is not None:
         meta['votes_json'] = json.dumps(votes)
         meta['vote_count'] = len(votes)
