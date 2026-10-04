@@ -548,7 +548,11 @@ automatically.
   (`Governance Subcommittee`, …), from `classify_meeting()`
 - `meeting_purpose` — the notice's "for the purpose of …" words (from the
   notice PDF, else the minutes); shown as "Called for the purpose of …" on
-  the meeting page and the meeting list. `notice_url` links the notice.
+  the meeting page and the meeting list. Not set for Regular Meetings (their
+  notices say "the agenda items listed below" or describe only the
+  executive session), and an executive session's legal justification ("as
+  an open meeting may have a detrimental effect…") is cut off.
+  `notice_url` links the notice.
 - `meeting_date`, `cablecast_embed_url`, `agenda_url`,
   `languages_available`, `cr_status` (ingest progress: `processing` →
   `ready`; visibility is WordPress's own post status), etc.
@@ -681,7 +685,7 @@ and on meta writes, and rebuilt on the next read.
   and Special Meetings, a Budget Workshop, and 10 subcommittee meetings
 - ✅ Subcommittee pages (members, meetings, scoped search), linked from
   officials and meetings; the meeting list and search filter by body
-- ✅ Meetings without an agenda show why they were called (from the notice)
+- ✅ Meetings other than Regular Meetings show why they were called (from the notice)
 - ✅ Officials' voting records served from a vote index
 - ✅ Transcripts with per-cue timestamps; the transcript follows the video
 - ✅ Search across every meeting, grouped by meeting, with agenda matches

@@ -24,6 +24,7 @@ import argparse
 import hashlib
 import json
 import logging
+import re
 import sqlite3
 from pathlib import Path
 
@@ -198,14 +199,16 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
         meta['agenda_url'] = portal['agenda_url']
     if portal.get('body'):
         meta['meeting_body'] = portal['body']
-    # Why the meeting was called — from the notice, else the minutes. Only
-    # for meetings without an agenda: a regular meeting's notice just says
-    # "for the purpose of discussing the agenda items listed below", or
-    # describes only its executive session.
+    # Why the meeting was called — from the notice, else the minutes. Not
+    # for regular meetings, whose notices say "for the purpose of discussing
+    # the agenda items listed below" or describe only the executive session;
+    # nor for any other notice that just points at the agenda.
     purpose = None
-    if not portal['agenda_url']:
+    if portal.get('kind') != 'Regular Meeting':
         purpose = (call_of_meeting(notice_text(portal['notice_url'])) if portal.get('notice_url') else None) \
             or call_of_meeting(text)
+        if purpose and re.search(r'agenda items? listed', purpose, re.I):
+            purpose = None
     meta['meeting_purpose'] = purpose or ''
     if portal.get('notice_url'):
         meta['notice_url'] = portal['notice_url']

@@ -168,8 +168,10 @@ def call_of_meeting(text):
     m = PURPOSE_RE.search(' '.join((text or '').split()))
     if not m:
         return None
-    # Venue clauses aren't part of the purpose
-    purpose = re.split(r',?\s*broadcast from\b|\s+and held in\b', m.group(1))[0]
+    # Venue clauses aren't part of the purpose, and neither is an executive
+    # session's legal justification ("… as an open meeting may have a
+    # detrimental effect on the bargaining position of the School Committee")
+    purpose = re.split(r',?\s*broadcast from\b|\s+and held in\b|\s+as an open meeting may\b', m.group(1))[0]
     return purpose.strip(' ,;') or None
 
 
