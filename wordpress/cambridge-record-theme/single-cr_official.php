@@ -30,7 +30,8 @@ while ( have_posts() ) :
             <?php if ( $subcommittees ) : ?>
                 <ul class="subcommittees">
                     <?php foreach ( $subcommittees as $sc ) : ?>
-                        <li><?php echo esc_html( $sc['name'] ); ?><?php echo ( $sc['role'] ?? 'Member' ) !== 'Member' ? ' <span class="muted">· ' . esc_html( $sc['role'] ) . '</span>' : ''; ?></li>
+                        <?php $page = function_exists( 'cr_find_subcommittee' ) ? cr_find_subcommittee( $sc['body'] ?? null ) : null; ?>
+                        <li><?php if ( $page ) : ?><a href="<?php echo esc_url( get_permalink( $page ) ); ?>"><?php endif; ?><?php echo esc_html( $sc['name'] ); ?><?php if ( $page ) : ?></a><?php endif; ?><?php echo ( $sc['role'] ?? 'Member' ) !== 'Member' ? ' <span class="muted">· ' . esc_html( $sc['role'] ) . '</span>' : ''; ?></li>
                     <?php endforeach; ?>
                 </ul>
             <?php endif; ?>

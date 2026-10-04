@@ -6,7 +6,7 @@
 **Started:** September 2026  
 **Target:** NEACM Conference, November 17, 2026  
 **Author:** Matt, Media Arts Manager, Cambridge Public Schools  
-**Current versions:** plugin 0.6.1 · theme 0.5.1
+**Current versions:** plugin 0.7.0 · theme 0.6.0
 
 ---
 
@@ -277,16 +277,25 @@ python improve_captions.py --score samples/2026-08-04_11498_137.txt
 
 `--score` reports the share of words that were wrong in Cablecast's
 captions and after the automatic fixes, and the staff time per hour of
-meeting. Three worksheets are ready in `samples/`: 8/4 public comment
-(remote speakers — the hardest audio), 1/20 (an early-2026 recording with
-weaker captions), and 9/1 (recent).
+meeting. Three worksheets are in `samples/`: 8/4 public comment (remote
+speakers — the hardest audio), 1/20 (an early-2026 recording), and 9/1.
 
-A full word-for-word correction of a 3–5 hour meeting is likely to be a
-day's work. The corrections that matter most are names, motions, votes
-and dollar amounts — the vote timing is handled in Review times, and the
-terms list covers most names — so a focused review of the report's
-"words to check" may be the realistic weekly job. The worksheets will
-say.
+**Results (October 2026).** The School Committee clerk corrected all three:
+
+| Sample (10 min each) | Cablecast wrong | After our fixes | Time |
+|---|---|---|---|
+| 1/20 budget presentation | 0.3% | 0.3% | 10 min |
+| 8/4 public comment | 0.9% | 0.7% | 14 min |
+| 9/1 superintendent's update | 0.5% | 0.5% | 14 min |
+
+Cablecast's captions are **99%+ accurate**, even for remote public
+comment. Correcting by hand costs about 1–1.4 hours per hour of meeting,
+almost all of it listening in real time, to fix about one word a minute —
+not worth doing weekly. The errors were names and acronyms (Christo,
+Jaikumar, Wortis, DESE, CRLS) and homophones ("for/four"), so the weekly
+job is the report's "Words to check": add names to `cambridge_terms.txt`.
+Caveats: three samples, one person, one real-time pass — the error rates
+are a floor.
 
 ### Officials
 
@@ -302,6 +311,17 @@ python sync_officials.py
 
 It updates existing members in place and never deletes anyone: when a
 member leaves, set their `term_end` so their voting record stays online.
+
+It also keeps the **subcommittee pages** (`/subcommittees/`) in step: one
+page per subcommittee named in the roster, created the first time it
+appears. Roster names are matched to the subcommittee's meetings by the
+same keyword rules as the pipeline (`classify_meeting()`), so
+"Special Education/Student Services" finds the "Special Education and
+Student Supports Subcommittee" meetings; "Budget (Committee of the Whole)"
+is the full committee and gets no page. A page's members and meetings
+update by themselves; to describe what a subcommittee is for, edit its
+page in **WP admin → Subcommittees** and write in the editor — the sync
+never touches that text, and never deletes or renames a page.
 
 ### Sharing links
 
@@ -319,6 +339,7 @@ Search matches the words as a phrase, in order, from the start of a word
 must fall within one caption line, so one split across two lines is
 missed.
 | `/official/{name}/` | a member's voting record |
+| `/subcommittees/`, `/subcommittee/{name}/` | subcommittees; one subcommittee's members and meetings |
 
 The meeting page's **Copy link to this moment** button builds the first
 kind. Search results link to the second.
@@ -512,6 +533,9 @@ automatically.
 **Post types:**
 - `cr_meeting` — one per meeting session
 - `cr_official` — School Committee members (from `officials.json`)
+- `cr_subcommittee` — one per standing subcommittee (created by
+  `sync_officials.py`); meta `meeting_body` links it to its meetings, and
+  its members are the officials whose `subcommittees_json` names that body
 - `cr_issue` — curated topic threads (not used yet)
 
 **Meta on `cr_meeting`:**
@@ -538,7 +562,8 @@ Review times, a meeting published, unpublished or deleted, a plugin update
 
 **Meta on `cr_official`:** `full_name`, `official_title`, `minutes_name`
 (surname as the minutes write it), `is_voting_member`, `term_start`,
-`term_end`, `subcommittees_json`.
+`term_end`, `subcommittees_json` (`[{name, role, body}]`, where `body` is the
+`meeting_body` the subcommittee meets as).
 
 **`post_content`** holds all transcript text — what WordPress's native
 search indexes. The search endpoint finds candidate meetings that way,
@@ -555,6 +580,8 @@ then matches segments in PHP.
 - `GET /wp-json/cambridge-record/v1/officials/{name}/votes` — the same by
   name as the minutes write it (`dube`, `de-paula-santos`; title, case and
   punctuation ignored)
+- `GET /wp-json/cambridge-record/v1/subcommittees` — each subcommittee with
+  its members, meeting count and latest meeting
 - `GET|POST /wp-json/cambridge-record/v1/review` — Review times (editors only)
 
 ---
@@ -648,9 +675,14 @@ and on meta writes, and rebuilt on the next read.
 
 ---
 
-## What's working (as of late September 2026)
+## What's working (as of October 3, 2026)
 
-- ✅ 23 School Committee meetings (Jan–Sep 2026), all published
+- ✅ 34 meetings (Jan–Sep 2026), all published: 23 full-committee Regular
+  and Special Meetings, a Budget Workshop, and 10 subcommittee meetings
+- ✅ Subcommittee pages (members, meetings, scoped search), linked from
+  officials and meetings; the meeting list and search filter by body
+- ✅ Meetings without an agenda show why they were called (from the notice)
+- ✅ Officials' voting records served from a vote index
 - ✅ Transcripts with per-cue timestamps; the transcript follows the video
 - ✅ Search across every meeting, grouped by meeting, with agenda matches
 - ✅ Agendas from the CPS portal, with times in the video
@@ -664,24 +696,24 @@ and on meta writes, and rebuilt on the next read.
 
 ## What's not built yet
 
-**Subcommittee pages.** The 2026 subcommittee meetings are published
-(October 3). The meeting list and search can be filtered by body
-(`?body=Governance+Subcommittee`), and meetings without an agenda show
-their purpose from the notice. Not yet: a page per subcommittee (its
-members from `officials.json` and its meetings), linked from officials'
-pages.
-Residents often take part in these conversations, and the minutes name
-them — the site should never build pages or search facets for private
-individuals, only for officials.
+**Private individuals.** Residents often take part in subcommittee
+conversations, and the minutes name them — the site should never build
+pages or search facets for private individuals, only for officials.
 
 **Pages that follow an item across meetings** — one page per docket
 number (e.g. #26-125, tabled on 6/2 and 8/4, back on 9/1) built from
 existing data; a start on the `cr_issue` "issue threads".
 
-**Caption improvement, next steps** — have a person do the three
-worksheets in `samples/`; upload corrected captions to Cablecast and check
-whether the translated caption tracks follow; a timed Whisper test on one
-meeting to compare with Cablecast's captions.
+**Caption improvement, next steps** — upload corrected captions to
+Cablecast and check whether the translated caption tracks follow; a timed
+Whisper test on one meeting to compare with Cablecast's captions. (The
+editing-time worksheets are done; see *How much human editing does a
+meeting need?*)
+
+**Search phrases across caption lines** — a phrase must fall within one
+caption cue, so "special education" split across two lines is missed.
+Fix together with search speed (search decodes every matching meeting's
+transcript; 0.6 s at 34 meetings, so not yet urgent).
 
 **Scheduled runs** — a weekly job on the Mac to ingest new meetings and
 pick up minutes.
@@ -727,8 +759,11 @@ installations using cloud caption delivery.
 **Done (Sep 23–25):** theme, meeting pages with synced transcript,
 agenda + minutes pipeline, video times, officials, backfill of 2026,
 search, Review times  
-**Next:** work through Review times; subcommittee meetings; item-history
-pages; caption corrections  
+**Done (Oct 2–3):** paginated meeting index, vote index, subcommittee
+meetings and pages, committee filter, meeting purposes, search tips, the
+clerk's caption-accuracy worksheets  
+**Next:** work through Review times; item-history pages; search across
+caption lines (with the speed fix)  
 **Week of Oct 21:** AI layer if time allows, conference prep  
 **Week of Oct 28:** Demo rehearsal, presentation slides, an offline
 fallback for the demo (conference wifi)  

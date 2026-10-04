@@ -5,7 +5,7 @@
  *              Single post per meeting — segments, agenda items, and votes
  *              stored as JSON in post meta. Designed for shared hosting.
  *              No plugin dependencies. REST API ready for the local pipeline.
- * Version:     0.6.1
+ * Version:     0.7.0
  * Author:      Matt / Cambridge Public Schools
  * License:     CC BY-SA 4.0
  * Site:        mediatechaction.com
@@ -13,14 +13,14 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_PLUGIN_VERSION', '0.6.1' );
+define( 'CR_PLUGIN_VERSION', '0.7.0' );
 
 require_once __DIR__ . '/includes/review.php';
 
 
 // ═══════════════════════════════════════════════════════
 // 1. CUSTOM POST TYPES
-//    Three post types only: meeting, official, issue.
+//    Four post types: meeting, official, subcommittee, issue.
 //    Segments, agenda items, and votes live inside
 //    meeting post meta as JSON — not as separate posts.
 // ═══════════════════════════════════════════════════════
@@ -61,6 +61,24 @@ function cr_register_post_types() {
         'menu_position'      => 6,
     ] );
 
+    // ── subcommittee ─────────────────────────────────
+    // One post per standing subcommittee, created by sync_officials.py.
+    // Members come from officials' subcommittees_json, meetings from
+    // cr_meeting posts with the same meeting_body. The post content is an
+    // optional description (the subcommittee's charge), written in WP admin.
+    register_post_type( 'cr_subcommittee', [
+        'label'              => 'Subcommittees',
+        'labels'             => cr_labels( 'Subcommittee', 'Subcommittees' ),
+        'public'             => true,
+        'show_in_rest'       => true,
+        'rest_base'          => 'subcommittee',
+        'supports'           => [ 'title', 'editor', 'custom-fields' ],
+        'rewrite'            => [ 'slug' => 'subcommittee' ],
+        'has_archive'        => 'subcommittees',
+        'menu_icon'          => 'dashicons-networking',
+        'menu_position'      => 7,
+    ] );
+
     // ── issue ─────────────────────────────────────────
     // A topic tracked across multiple meetings.
     // Manually curated for the pilot; AI clustering in Phase 5.
@@ -73,7 +91,7 @@ function cr_register_post_types() {
         'supports'           => [ 'title', 'editor', 'custom-fields' ],
         'rewrite'            => [ 'slug' => 'issue' ],
         'menu_icon'          => 'dashicons-tag',
-        'menu_position'      => 7,
+        'menu_position'      => 8,
     ] );
 }
 
@@ -162,9 +180,14 @@ function cr_register_meta_fields() {
         'term_end'           => 'string',   // YYYY-MM-DD or empty if current
         'is_voting_member'   => 'boolean',
         'minutes_name'       => 'string',   // surname as the minutes write it: 'Weinstein', 'de Paula Santos'
-        'subcommittees_json' => 'string',   // [{name, role}] — role 'Chair' | 'Co-Chair' | 'Member'
+        'subcommittees_json' => 'string',   // [{name, role, body}] — role 'Chair' | 'Co-Chair' | 'Member'; body = the meeting_body it meets as (null for the Budget committee of the whole)
     ];
     cr_register_meta_group( 'cr_official', $official_fields );
+
+    // ── cr_subcommittee ───────────────────────────────
+    cr_register_meta_group( 'cr_subcommittee', [
+        'meeting_body' => 'string',   // matches cr_meeting meeting_body: 'Governance Subcommittee'
+    ] );
 
     // ── cr_issue ──────────────────────────────────────
     $issue_fields = [
@@ -265,6 +288,11 @@ function cr_register_rest_routes() {
         'callback'            => 'cr_official_record',
         'permission_callback' => '__return_true',
         'args'                => [ 'id' => [ 'sanitize_callback' => 'absint' ] ],
+    ] );
+    register_rest_route( 'cambridge-record/v1', '/subcommittees', [
+        'methods'             => 'GET',
+        'callback'            => 'cr_subcommittees_index',
+        'permission_callback' => '__return_true',
     ] );
     register_rest_route( 'cambridge-record/v1', '/officials/(?P<name>[^/]+)/votes', [
         'methods'             => 'GET',
@@ -756,6 +784,93 @@ function cr_official_votes_by_name( WP_REST_Request $request ) {
         'summary'  => $entry['summary'] ?? cr_empty_vote_summary(),
         'votes'    => $entry['votes'] ?? [],
     ] );
+}
+
+
+// ═══════════════════════════════════════════════════════
+// 3d. SUBCOMMITTEES
+//     A cr_subcommittee post names a meeting_body. Its members
+//     are the current officials whose subcommittees_json lists
+//     that body; its meetings are the published meetings held
+//     as that body. Used by the theme's subcommittee pages,
+//     official pages and meeting pages.
+// ═══════════════════════════════════════════════════════
+
+/** The published cr_subcommittee post for a meeting_body, or null. */
+function cr_find_subcommittee( $body ) {
+    static $by_body = null;
+    if ( $by_body === null ) {
+        $by_body = [];
+        foreach ( get_posts( [ 'post_type' => 'cr_subcommittee', 'post_status' => 'publish', 'posts_per_page' => -1 ] ) as $p ) {
+            $by_body[ get_post_meta( $p->ID, 'meeting_body', true ) ] = $p;
+        }
+    }
+    return $body ? ( $by_body[ $body ] ?? null ) : null;
+}
+
+/** Current members, chairs first: [{id, name, title, role, permalink}]. */
+function cr_subcommittee_members( $body ) {
+    $today   = gmdate( 'Y-m-d' );
+    $rank    = [ 'Chair' => 0, 'Co-Chair' => 1 ];
+    $members = [];
+    foreach ( cr_get_officials() as $o ) {
+        if ( $o['term_end'] && $o['term_end'] < $today ) {
+            continue;
+        }
+        foreach ( $o['subcommittees'] as $sc ) {
+            if ( ( $sc['body'] ?? null ) === $body ) {
+                $members[] = [
+                    'id'        => $o['id'],
+                    'name'      => $o['name'],
+                    'title'     => $o['title'],
+                    'role'      => $sc['role'] ?? 'Member',
+                    'permalink' => $o['permalink'],
+                ];
+            }
+        }
+    }
+    usort( $members, fn( $a, $b ) => ( $rank[ $a['role'] ] ?? 2 ) <=> ( $rank[ $b['role'] ] ?? 2 ) );
+    return $members;
+}
+
+/** Published meetings held as this body, newest first: [{id, title, meeting_date, purpose, permalink}]. */
+function cr_body_meetings( $body ) {
+    global $wpdb;
+    // Direct query: get_posts() would load each meeting's transcript meta too.
+    $rows = $wpdb->get_results( $wpdb->prepare(
+        "SELECT p.ID, d.meta_value AS meeting_date, pu.meta_value AS purpose
+           FROM {$wpdb->posts} p
+           JOIN {$wpdb->postmeta} b ON b.post_id = p.ID AND b.meta_key = 'meeting_body' AND b.meta_value = %s
+           LEFT JOIN {$wpdb->postmeta} d ON d.post_id = p.ID AND d.meta_key = 'meeting_date'
+           LEFT JOIN {$wpdb->postmeta} pu ON pu.post_id = p.ID AND pu.meta_key = 'meeting_purpose'
+          WHERE p.post_type = 'cr_meeting' AND p.post_status = 'publish'
+          ORDER BY d.meta_value DESC, p.ID DESC",
+        $body
+    ) );
+    return array_map( fn( $r ) => [
+        'id'           => (int) $r->ID,
+        'title'        => get_the_title( $r->ID ),
+        'meeting_date' => (string) $r->meeting_date,
+        'purpose'      => (string) $r->purpose,
+        'permalink'    => get_permalink( $r->ID ),
+    ], $rows );
+}
+
+function cr_subcommittees_index( WP_REST_Request $request ) {
+    $posts = get_posts( [ 'post_type' => 'cr_subcommittee', 'post_status' => 'publish', 'posts_per_page' => -1, 'orderby' => 'title', 'order' => 'ASC' ] );
+    return rest_ensure_response( [ 'subcommittees' => array_map( function ( $p ) {
+        $body     = get_post_meta( $p->ID, 'meeting_body', true );
+        $meetings = cr_body_meetings( $body );
+        return [
+            'id'             => $p->ID,
+            'name'           => get_the_title( $p->ID ),
+            'meeting_body'   => $body,
+            'permalink'      => get_permalink( $p->ID ),
+            'members'        => cr_subcommittee_members( $body ),
+            'meeting_count'  => count( $meetings ),
+            'latest_meeting' => $meetings[0] ?? null,
+        ];
+    }, $posts ) ] );
 }
 
 

@@ -7,7 +7,16 @@ safe to re-run after editing the roster. It never deletes posts: when
 someone leaves the committee, set their term_end rather than removing them,
 so their voting record stays on the site.
 
-Requires Cambridge Record plugin 0.3.0+ (minutes_name / subcommittees_json meta).
+It also creates one cr_subcommittee post per subcommittee in the roster,
+matched on meeting_body: each roster name ("Special Education/Student
+Services") is mapped to the body its meetings are filed under ("Special
+Education and Student Supports Subcommittee") by the same
+classify_meeting() the pipeline uses. "Budget (Committee of the Whole)"
+maps to no body, since it is the full committee, and gets no page.
+Subcommittee pages are never deleted or renamed; their descriptions are
+written in WP admin and left alone here.
+
+Requires Cambridge Record plugin 0.7.0+ (subcommittee pages).
 
 Usage:
     python sync_officials.py --dry-run     # show what would change
@@ -17,10 +26,13 @@ Usage:
 
 import argparse
 import json
+import re
 from pathlib import Path
 
 import requests
 from dotenv import dotenv_values
+
+from scrape_agenda import FULL_COMMITTEE, classify_meeting
 
 ROOT = Path(__file__).parent
 ENV = dotenv_values(ROOT / '.env')
@@ -31,11 +43,44 @@ META_FIELDS = ('full_name', 'official_title', 'minutes_name', 'is_voting_member'
 
 
 def plugin_ready():
-    """True when WordPress knows the minutes_name field (plugin 0.3.0+); otherwise it would silently drop it."""
-    r = requests.options(f'{WP_BASE}/official', auth=WP_AUTH, timeout=30)
+    """True when WordPress has subcommittee pages (plugin 0.7.0+), and so the minutes_name field too."""
+    r = requests.options(f'{WP_BASE}/subcommittee', auth=WP_AUTH, timeout=30)
+    if r.status_code == 404:
+        return False
     r.raise_for_status()
     meta = r.json().get('schema', {}).get('properties', {}).get('meta', {}).get('properties', {})
-    return 'minutes_name' in meta
+    return 'meeting_body' in meta
+
+
+def subcommittee_body(name):
+    """The meeting_body a roster subcommittee meets as, or None (the Budget committee of the whole)."""
+    body, _ = classify_meeting(name)
+    return body if body and body != FULL_COMMITTEE else None
+
+
+def subcommittee_slug(body):
+    """/subcommittee/governance/, not /subcommittee/governance-subcommittee/."""
+    return re.sub(r'[^a-z0-9]+', '-', body.lower().removesuffix(' subcommittee')).strip('-')
+
+
+def sync_subcommittees(roster, dry_run):
+    """Create a cr_subcommittee post for each body in the roster that doesn't have one."""
+    r = requests.get(f'{WP_BASE}/subcommittee', auth=WP_AUTH, timeout=30, params={
+        'context': 'edit', 'per_page': 100, 'status': 'publish,draft,pending,private', '_fields': 'id,meta',
+    })
+    r.raise_for_status()
+    existing = {p['meta'].get('meeting_body') for p in r.json()}
+    bodies = sorted({sc['body'] for person in roster for sc in person['subcommittees'] if sc['body']})
+    for body in bodies:
+        if body in existing:
+            print(f'  = {body} (page exists)')
+            continue
+        print(f'  + {body}: create page')
+        if not dry_run:
+            r = requests.post(f'{WP_BASE}/subcommittee', auth=WP_AUTH, timeout=30, json={
+                'title': body, 'slug': subcommittee_slug(body), 'status': 'publish', 'meta': {'meeting_body': body},
+            })
+            r.raise_for_status()
 
 
 def existing_officials():
@@ -55,15 +100,23 @@ def main():
     args = parser.parse_args()
 
     if not plugin_ready():
-        raise SystemExit('WordPress is running an older Cambridge Record plugin (no minutes_name field). '
-                         'Upload wordpress/cambridge-record-plugin.zip (0.3.0+) first.')
+        raise SystemExit('WordPress is running an older Cambridge Record plugin (no subcommittee pages). '
+                         'Upload wordpress/cambridge-record-plugin.zip (0.7.0+) first.')
 
     roster = json.loads((ROOT / 'officials.json').read_text())['officials']
+    for person in roster:
+        person['subcommittees'] = [{**sc, 'body': subcommittee_body(sc['name'])}
+                                   for sc in person.get('subcommittees', [])]
+
+    print('Subcommittees')
+    sync_subcommittees(roster, args.dry_run)
+
+    print('Officials')
     current = existing_officials()
 
     for person in roster:
         meta = {k: person[k] for k in META_FIELDS}
-        meta['subcommittees_json'] = json.dumps(person.get('subcommittees', []))
+        meta['subcommittees_json'] = json.dumps(person['subcommittees'])
         body = {'title': person['full_name'], 'meta': meta}
 
         post = current.get(person['minutes_name'].lower())

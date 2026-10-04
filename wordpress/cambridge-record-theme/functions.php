@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_THEME_VERSION', '0.5.1' );
+define( 'CR_THEME_VERSION', '0.6.0' );
 
 
 // ═══════════════════════════════════════════════════════
@@ -128,8 +128,11 @@ function cr_theme_format_date( $ymd, $format = 'l, F j, Y' ) {
     return $date ? $date->format( $format ) : '';
 }
 
-/** The transcript search form, used in the header, front page, and search page. */
-function cr_theme_search_form( $size = '' ) {
+/**
+ * The transcript search form, used in the header, front page, and search page.
+ * With $body (a meeting_body), results open filtered to that subcommittee.
+ */
+function cr_theme_search_form( $size = '', $body = '' ) {
     $id = 'cr-search-' . wp_unique_id();
     ?>
     <form role="search" method="get" action="<?php echo esc_url( home_url( '/' ) ); ?>" class="cr-search-form">
@@ -137,11 +140,42 @@ function cr_theme_search_form( $size = '' ) {
         <div class="field <?php echo $size ? 'field--' . esc_attr( $size ) : ''; ?>">
             <input type="search" id="<?php echo esc_attr( $id ); ?>" name="s"
                    value="<?php echo esc_attr( get_search_query() ); ?>"
-                   placeholder="<?php echo $size === 'lg' ? 'Search every word said — e.g. “transportation”' : 'Search transcripts'; ?>"
+                   placeholder="<?php echo $body ? 'Search these meetings' : ( $size === 'lg' ? 'Search every word said — e.g. “transportation”' : 'Search transcripts' ); ?>"
                    autocomplete="off" required minlength="2">
             <button type="submit">Search</button>
         </div>
+        <?php if ( $body ) : ?>
+            <input type="hidden" name="body" value="<?php echo esc_attr( $body ); ?>">
+        <?php endif; ?>
     </form>
+    <?php
+}
+
+/** Subcommittees A–Z, all on one page. */
+add_action( 'pre_get_posts', function ( $query ) {
+    if ( ! is_admin() && $query->is_main_query() && $query->is_post_type_archive( 'cr_subcommittee' ) ) {
+        $query->set( 'orderby', 'title' );
+        $query->set( 'order', 'ASC' );
+        $query->set( 'posts_per_page', -1 );
+    }
+} );
+
+/** A meeting row in the style of the front page's list (assets/js/meetings.js). */
+function cr_theme_meeting_row( array $m ) {
+    ?>
+    <li class="meeting-row">
+        <div class="meeting-row__date">
+            <?php if ( $m['meeting_date'] ) : ?>
+                <time datetime="<?php echo esc_attr( $m['meeting_date'] ); ?>"><?php echo esc_html( cr_theme_format_date( $m['meeting_date'], 'M j, Y' ) ); ?><span><?php echo esc_html( cr_theme_format_date( $m['meeting_date'], 'l' ) ); ?></span></time>
+            <?php else : ?>
+                Undated
+            <?php endif; ?>
+        </div>
+        <h3 class="meeting-row__title"><a href="<?php echo esc_url( $m['permalink'] ); ?>"><?php echo esc_html( $m['title'] ); ?></a></h3>
+        <?php if ( $m['purpose'] ) : ?>
+            <p class="meeting-row__summary meeting-row__purpose">Called for the purpose of <?php echo esc_html( $m['purpose'] ); ?>.</p>
+        <?php endif; ?>
+    </li>
     <?php
 }
 
@@ -151,6 +185,9 @@ function cr_theme_default_menu() {
     printf( '<li><a href="%s">Meetings</a></li>', esc_url( home_url( '/' ) ) );
     if ( get_post_type_archive_link( 'cr_official' ) ) {
         printf( '<li><a href="%s">Officials</a></li>', esc_url( get_post_type_archive_link( 'cr_official' ) ) );
+    }
+    if ( get_post_type_archive_link( 'cr_subcommittee' ) ) {
+        printf( '<li><a href="%s">Subcommittees</a></li>', esc_url( get_post_type_archive_link( 'cr_subcommittee' ) ) );
     }
     printf( '<li><a href="%s">Search</a></li>', esc_url( home_url( '/?s=' ) ) );
     echo '</ul>';

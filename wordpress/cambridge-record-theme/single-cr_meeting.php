@@ -27,7 +27,8 @@ while ( have_posts() ) :
         <?php cr_theme_plugin_notice(); ?>
 
         <header class="meeting-head">
-            <p class="eyebrow"><?php echo esc_html( $body ); ?></p>
+            <?php $sc_page = function_exists( 'cr_find_subcommittee' ) ? cr_find_subcommittee( $body ) : null; ?>
+            <p class="eyebrow"><?php if ( $sc_page ) : ?><a href="<?php echo esc_url( get_permalink( $sc_page ) ); ?>"><?php echo esc_html( $body ); ?></a><?php else : ?><?php echo esc_html( $body ); ?><?php endif; ?></p>
             <h1><?php the_title(); ?></h1>
             <div class="meta-line">
                 <?php if ( $date ) : ?>
