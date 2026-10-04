@@ -5,7 +5,7 @@
  *              Single post per meeting — segments, agenda items, and votes
  *              stored as JSON in post meta. Designed for shared hosting.
  *              No plugin dependencies. REST API ready for the local pipeline.
- * Version:     0.5.1
+ * Version:     0.6.1
  * Author:      Matt / Cambridge Public Schools
  * License:     CC BY-SA 4.0
  * Site:        mediatechaction.com
@@ -13,7 +13,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'CR_PLUGIN_VERSION', '0.5.1' );
+define( 'CR_PLUGIN_VERSION', '0.6.1' );
 
 require_once __DIR__ . '/includes/review.php';
 
@@ -110,7 +110,9 @@ function cr_register_meta_fields() {
     // Scalar fields — one value each
     $meeting_scalars = [
         'meeting_date'           => 'string',   // YYYY-MM-DD
-        'meeting_body'           => 'string',   // 'Cambridge School Committee'
+        'meeting_body'           => 'string',   // 'Cambridge School Committee' | 'Governance Subcommittee' | …
+        'meeting_purpose'        => 'string',   // the notice's "for the purpose of …" words, e.g. 'discussing family engagement in special education'
+        'notice_url'             => 'string',   // CPS portal meeting notice (PDF)
         'cablecast_vod_id'       => 'integer',
         'cablecast_embed_url'    => 'string',   // base VOD URL
         'agenda_url'             => 'string',   // CPS website agenda page
@@ -291,7 +293,7 @@ function cr_register_rest_routes() {
  *   results: flat list of the first `limit` hits (the 0.2 response shape)
  */
 function cr_search_segments( WP_REST_Request $request ) {
-    $query       = trim( (string) $request->get_param( 'q' ) );
+    $query       = cr_search_clean( $request->get_param( 'q' ) );
     $limit       = min( max( (int) $request->get_param( 'limit' ), 1 ), 200 );
     $per_meeting = min( max( (int) ( $request->get_param( 'per_meeting' ) ?: 5 ), 1 ), 50 );
     $needle      = cr_search_normalize( $query );
@@ -415,6 +417,14 @@ function cr_search_segments( WP_REST_Request $request ) {
     ] );
 }
 
+/**
+ * Drop double quotes: the search already matches the words as a phrase, and
+ * "special education" (with quotes) would otherwise look for quote marks.
+ */
+function cr_search_clean( $query ) {
+    return trim( preg_replace( '/\s+/u', ' ', str_replace( [ '"', '“', '”' ], ' ', (string) $query ) ) );
+}
+
 /** Lowercase, curly apostrophes → straight, so "don't" finds "don’t". */
 function cr_search_normalize( $text ) {
     return mb_strtolower( str_replace( [ '’', '‘' ], "'", (string) $text ) );
@@ -452,6 +462,8 @@ function cr_meeting_index( WP_REST_Request $request ) {
             'meeting_body'   => $meta['meeting_body'][0]   ?? '',
             'embed_url'      => $meta['cablecast_embed_url'][0] ?? '',
             'agenda_url'     => $meta['agenda_url'][0]     ?? '',
+            'purpose'        => $meta['meeting_purpose'][0] ?? '',
+            'notice_url'     => $meta['notice_url'][0]     ?? '',
             'segment_count'  => (int)( $meta['segment_count'][0]  ?? 0 ),
             'vote_count'     => (int)( $meta['vote_count'][0]     ?? 0 ),
             'summary'        => $meta['summary'][0]        ?? '',

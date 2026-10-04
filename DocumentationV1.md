@@ -6,7 +6,7 @@
 **Started:** September 2026  
 **Target:** NEACM Conference, November 17, 2026  
 **Author:** Matt, Media Arts Manager, Cambridge Public Schools  
-**Current versions:** plugin 0.5.1 · theme 0.4.3
+**Current versions:** plugin 0.6.1 · theme 0.5.1
 
 ---
 
@@ -311,7 +311,13 @@ Every meeting page link can point at a moment:
 |---|---|
 | `/meeting/{slug}/#t=3725` | the meeting at 1:02:05 |
 | `/meeting/{slug}/?q=budget#t=3725` | …with "budget" highlighted in the transcript |
+| `/?body=School+Climate+Subcommittee` | the meeting list, one body only (search takes `&body=` too) |
 | `/?s=transportation` | search results |
+
+Search matches the words as a phrase, in order, from the start of a word
+("special ed" finds "special education"); quotes are ignored. A phrase
+must fall within one caption line, so one split across two lines is
+missed.
 | `/official/{name}/` | a member's voting record |
 
 The meeting page's **Copy link to this moment** button builds the first
@@ -514,7 +520,12 @@ automatically.
 - `votes_json` — official votes from the minutes (or caption-based guesses
   before minutes are posted), with roll calls, times and match scores
 - `review_json` — people's decisions from Review times
-- `meeting_date`, `meeting_body`, `cablecast_embed_url`, `agenda_url`,
+- `meeting_body` — `Cambridge School Committee` or one subcommittee
+  (`Governance Subcommittee`, …), from `classify_meeting()`
+- `meeting_purpose` — the notice's "for the purpose of …" words (from the
+  notice PDF, else the minutes); shown as "Called for the purpose of …" on
+  the meeting page and the meeting list. `notice_url` links the notice.
+- `meeting_date`, `cablecast_embed_url`, `agenda_url`,
   `languages_available`, `cr_status` (ingest progress: `processing` →
   `ready`; visibility is WordPress's own post status), etc.
 
@@ -653,12 +664,12 @@ and on meta writes, and rebuilt on the next read.
 
 ## What's not built yet
 
-**Subcommittee meetings — the site side.** The 2026 subcommittee meetings
-are ingested as drafts (October 3). Their minutes are narrative, with no
-roll calls, and most have no agenda page, so their meeting pages are a
-transcript only. Still to do: a body filter on the meeting list and in
-search, subcommittee pages, and a description for meetings without an
-agenda (the minutes and notice state the "call of the meeting").
+**Subcommittee pages.** The 2026 subcommittee meetings are published
+(October 3). The meeting list and search can be filtered by body
+(`?body=Governance+Subcommittee`), and meetings without an agenda show
+their purpose from the notice. Not yet: a page per subcommittee (its
+members from `officials.json` and its meetings), linked from officials'
+pages.
 Residents often take part in these conversations, and the minutes name
 them — the site should never build pages or search facets for private
 individuals, only for officials.

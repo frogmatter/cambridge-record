@@ -30,6 +30,41 @@
         return res.json();
     }
 
+    /** Which body met: the full committee or one of its subcommittees. */
+    const FULL_COMMITTEE = 'Cambridge School Committee';
+    function bodyOf( meetingBody ) {
+        return meetingBody || FULL_COMMITTEE;
+    }
+    function bodyLabel( meetingBody ) {
+        return bodyOf( meetingBody ) === FULL_COMMITTEE ? 'Full committee' : meetingBody;
+    }
+
+    /**
+     * Fill a <select> with "All meetings", "Full committee", then each
+     * subcommittee A–Z (with counts), keeping the current choice if it's
+     * still there. Hidden when there's only one body to choose from.
+     */
+    function fillBodySelect( select, bodies, current ) {
+        const counts = new Map();
+        bodies.forEach( ( b ) => counts.set( bodyOf( b ), ( counts.get( bodyOf( b ) ) || 0 ) + 1 ) );
+        const names = [ ...counts.keys() ].sort( ( a, b ) =>
+            ( a === FULL_COMMITTEE ? -1 : b === FULL_COMMITTEE ? 1 : a.localeCompare( b ) ) );
+        select.replaceChildren(
+            el( 'option', { value: '' }, 'All meetings' ),
+            ...names.map( ( n ) => el( 'option', { value: n }, `${ bodyLabel( n ) } (${ counts.get( n ) })` ) )
+        );
+        select.value = counts.has( current ) ? current : '';
+        select.hidden = names.length < 2;
+        return select.value;
+    }
+
+    /** Keep a filter in the address bar (?body=…) so a filtered list can be shared. */
+    function setUrlParam( name, value ) {
+        const url = new URL( window.location.href );
+        if ( value ) url.searchParams.set( name, value ); else url.searchParams.delete( name );
+        history.replaceState( history.state, '', url );
+    }
+
     /** Every published meeting, following the index's pages. */
     async function allMeetings() {
         const meetings = [];
@@ -164,7 +199,7 @@
     }
 
     window.CR = {
-        config, api, allMeetings, parseJson, fmtTime, parseDate, fmtDate, schoolYear,
+        config, api, allMeetings, FULL_COMMITTEE, bodyOf, bodyLabel, fillBodySelect, setUrlParam, parseJson, fmtTime, parseDate, fmtDate, schoolYear,
         el, append, escapeRegExp, highlight, momentUrl, status, debounce, voteLabel, tallyText,
     };
 } )();

@@ -19,10 +19,12 @@ get_header();
     <section aria-labelledby="meetings-heading">
         <div class="list-toolbar">
             <h2 id="meetings-heading">Meetings</h2>
+            <label for="meeting-body" class="screen-reader-text">Committee or subcommittee</label>
+            <select id="meeting-body" hidden></select>
             <label for="meeting-year" class="screen-reader-text">School year</label>
             <select id="meeting-year" hidden></select>
             <label for="meeting-filter" class="screen-reader-text">Filter meetings</label>
-            <div class="field"><input type="search" id="meeting-filter" placeholder="Filter by title or date" autocomplete="off"></div>
+            <div class="field"><input type="search" id="meeting-filter" placeholder="Filter by title, topic or date" autocomplete="off"></div>
         </div>
 
         <div id="meeting-list" aria-live="polite">

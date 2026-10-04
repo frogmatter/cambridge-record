@@ -6,15 +6,16 @@
 ( function () {
     'use strict';
 
-    const { api, allMeetings, el, fmtDate, fmtTime, highlight, momentUrl, status, config } = window.CR;
+    const { api, allMeetings, bodyOf, bodyLabel, fillBodySelect, setUrlParam, FULL_COMMITTEE, el, fmtDate, fmtTime, highlight, momentUrl, status, config } = window.CR;
 
     const LIMIT = 50; // the endpoint caps results at 50
 
     const resultsEl = document.getElementById( 'search-results' );
     const summaryEl = document.getElementById( 'search-summary' );
     const form      = document.querySelector( '.search-head .cr-search-form' );
+    const bodyEl    = document.getElementById( 'search-body' );
     const input     = form && form.querySelector( 'input[name="s"]' );
-    if ( ! resultsEl || ! input ) return;
+    if ( ! resultsEl || ! input || ! bodyEl ) return;
 
     // The search endpoint returns meeting IDs but not permalinks, so we
     // look them up from the meeting index (fetched once, lazily).
@@ -70,7 +71,8 @@
             el( 'div', { class: 'result-group__head' },
                 el( 'h2', {}, el( 'a', { href: momentUrl( url, null, q ) }, g.meeting_title || 'Untitled meeting' ) ),
                 el( 'span', { class: 'muted' },
-                    [ fmtDate( g.meeting_date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' } ),
+                    [ bodyOf( g.meeting_body ) !== FULL_COMMITTEE ? bodyLabel( g.meeting_body ) : null,
+                      fmtDate( g.meeting_date, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' } ),
                       g.match_count ? `${ g.match_count } moment${ g.match_count === 1 ? '' : 's' }` : null ].filter( Boolean ).join( ' · ' ) )
             ),
             el( 'ol', { class: 'hits' },
@@ -93,14 +95,36 @@
     }
 
     let requestId = 0;
+    let shown = null;   // the last results, re-rendered when the body filter changes
+
+    function render() {
+        const { groups: all, links, q, capped } = shown;
+        const body = bodyEl.value;
+        const groups = body ? all.filter( ( g ) => bodyOf( g.meeting_body ) === body ) : all;
+
+        const n = groups.reduce( ( sum, g ) => sum + ( g.match_count || 0 ), 0 );
+        const items = groups.reduce( ( sum, g ) => sum + ( g.agenda_hits || [] ).length, 0 );
+        summaryEl.textContent = [
+            n ? `${ n }${ capped ? '+' : '' } moment${ n === 1 ? '' : 's' }` : null,
+            items ? `${ items } agenda item${ items === 1 ? '' : 's' }` : null,
+        ].filter( Boolean ).join( ' and ' ) + ` in ${ groups.length } meeting${ groups.length === 1 ? '' : 's' }`;
+
+        resultsEl.replaceChildren(
+            ...groups.map( ( g ) => renderGroup( g, links, q ) ),
+            capped
+                ? el( 'p', { class: 'search-note' }, `Showing the first ${ LIMIT } moments. Try a more specific phrase to narrow results.` )
+                : null
+        );
+    }
 
     async function run( q ) {
         const id = ++requestId;
-        q = q.trim();
+        q = q.replace( /["“”]/g, ' ' ).replace( /\s+/g, ' ' ).trim();   // already a phrase search
         document.title = [ q ? `“${ q }”` : 'Search', config.siteName ].filter( Boolean ).join( ' – ' );
 
         if ( q.length < 2 ) {
             summaryEl.textContent = '';
+            bodyEl.hidden = true;
             resultsEl.replaceChildren(
                 el( 'p', { class: 'status' }, 'Search for any word or phrase said in a meeting. Each result links to that moment in the video.' )
             );
@@ -108,6 +132,7 @@
         }
 
         summaryEl.textContent = '';
+        bodyEl.hidden = true;
         resultsEl.replaceChildren( el( 'p', { class: 'status loading' }, `Searching for “${ q }”` ) );
 
         try {
@@ -123,25 +148,22 @@
                 return;
             }
 
-            const n = data.count;
-            const capped = ! data.meetings && n >= LIMIT;
-            const items = groups.reduce( ( sum, g ) => sum + ( g.agenda_hits || [] ).length, 0 );
-            summaryEl.textContent = [
-                n ? `${ n }${ capped ? '+' : '' } moment${ n === 1 ? '' : 's' }` : null,
-                items ? `${ items } agenda item${ items === 1 ? '' : 's' }` : null,
-            ].filter( Boolean ).join( ' and ' ) + ` in ${ groups.length } meeting${ groups.length === 1 ? '' : 's' }`;
-
-            resultsEl.replaceChildren(
-                ...groups.map( ( g ) => renderGroup( g, links, q ) ),
-                capped
-                    ? el( 'p', { class: 'search-note' }, `Showing the first ${ LIMIT } moments. Try a more specific phrase to narrow results.` )
-                    : null
-            );
+            const capped = ! data.meetings && data.count >= LIMIT;
+            shown = { groups, links, q, capped };
+            fillBodySelect( bodyEl, groups.map( ( g ) => g.meeting_body ),
+                new URLSearchParams( window.location.search ).get( 'body' ) );
+            setUrlParam( 'body', bodyEl.value );   // drop a body these results don't have
+            render();
         } catch ( e ) {
             if ( id !== requestId ) return;
             status( resultsEl, 'Search failed. Please try again.', true );
         }
     }
+
+    bodyEl.addEventListener( 'change', () => {
+        setUrlParam( 'body', bodyEl.value );
+        if ( shown ) render();
+    } );
 
     form.addEventListener( 'submit', ( e ) => {
         e.preventDefault();

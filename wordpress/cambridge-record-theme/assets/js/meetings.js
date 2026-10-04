@@ -5,11 +5,12 @@
 ( function () {
     'use strict';
 
-    const { allMeetings, el, fmtDate, schoolYear, status, debounce } = window.CR;
+    const { allMeetings, bodyOf, fillBodySelect, setUrlParam, el, fmtDate, schoolYear, status, debounce } = window.CR;
 
     const listEl   = document.getElementById( 'meeting-list' );
     const filterEl = document.getElementById( 'meeting-filter' );
     const yearEl   = document.getElementById( 'meeting-year' );
+    const bodyEl   = document.getElementById( 'meeting-body' );
     if ( ! listEl ) return;
 
     let meetings = [];
@@ -37,18 +38,23 @@
             showSummary && el( 'p', { class: 'meeting-row__summary' },
                 isAi && el( 'span', { class: 'tag tag--ai', title: 'AI-generated summary. The transcript is the source.' }, `AI · ${ m.summary_origin.slice( 3 ) }` ),
                 isAi && ' ',
-                m.summary )
+                m.summary ),
+            // Meetings without a summary say why they were called (from the notice)
+            ! showSummary && m.purpose && el( 'p', { class: 'meeting-row__summary meeting-row__purpose' },
+                `Called for the purpose of ${ m.purpose }.` )
         );
     }
 
     function render() {
         const q = filterEl.value.trim().toLowerCase();
         const year = yearEl.value;
+        const body = bodyEl.value;
 
         const shown = meetings.filter( ( m ) => {
             if ( year && schoolYear( m.meeting_date ) !== year ) return false;
+            if ( body && bodyOf( m.meeting_body ) !== body ) return false;
             if ( ! q ) return true;
-            const hay = [ m.title, m.summary, m.meeting_date, fmtDate( m.meeting_date, { month: 'long', day: 'numeric', year: 'numeric' } ) ]
+            const hay = [ m.title, m.summary, m.purpose, m.meeting_body, m.meeting_date, fmtDate( m.meeting_date, { month: 'long', day: 'numeric', year: 'numeric' } ) ]
                 .join( ' ' ).toLowerCase();
             return hay.includes( q );
         } );
@@ -88,6 +94,8 @@
         try {
             meetings = await allMeetings();
             buildYearSelect();
+            fillBodySelect( bodyEl, meetings.map( ( m ) => m.meeting_body ),
+                new URLSearchParams( window.location.search ).get( 'body' ) );
             render();
         } catch ( e ) {
             status( listEl, 'Couldn’t load meetings. Please refresh the page.', true );
@@ -96,5 +104,9 @@
 
     filterEl.addEventListener( 'input', debounce( render, 120 ) );
     yearEl.addEventListener( 'change', render );
+    bodyEl.addEventListener( 'change', () => {
+        setUrlParam( 'body', bodyEl.value );
+        render();
+    } );
     load();
 } )();

@@ -14,12 +14,14 @@ Usage (prints what it finds; writes nothing):
 """
 
 import argparse
+import io
 import json
 import re
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup, NavigableString, Tag
+from pypdf import PdfReader
 
 PORTAL_URL = 'https://portal.cpsd.us/school_committee/'
 HEADERS    = {'User-Agent': 'CambridgeRecord/0.1 (+https://www.mediatechaction.com)'}
@@ -149,6 +151,37 @@ def find_portal_meeting(show_id, meetings=None):
         if m['show_id'] == int(show_id):
             return m
     return None
+
+
+# ── Call of the meeting ────────────────────────────────────────────────────────
+# Notices and minutes state why a meeting was called: "…at 5:30 p.m., for the
+# purpose of discussing family engagement in special education." Most
+# subcommittee and special meetings have no agenda page, so this is what
+# their meeting pages say about them.
+
+PURPOSE_RE = re.compile(r'for the purpose of\s+(.+?)(?:\.\s|\.?$)', re.I)
+
+
+def call_of_meeting(text):
+    """'discussing family engagement in special education' — the words after
+    "for the purpose of", up to the end of the sentence — or None."""
+    m = PURPOSE_RE.search(' '.join((text or '').split()))
+    if not m:
+        return None
+    # Venue clauses aren't part of the purpose
+    purpose = re.split(r',?\s*broadcast from\b|\s+and held in\b', m.group(1))[0]
+    return purpose.strip(' ,;') or None
+
+
+def notice_text(notice_url):
+    """Text of a meeting notice PDF, or None if it isn't a readable PDF."""
+    try:
+        r = fetch(notice_url)
+        if 'pdf' not in r.headers.get('content-type', ''):
+            return None
+        return ' '.join(page.extract_text() or '' for page in PdfReader(io.BytesIO(r.content)).pages)
+    except Exception:
+        return None
 
 
 # ── Agenda page ────────────────────────────────────────────────────────────────
@@ -336,6 +369,8 @@ def main():
 
     print(f"{meeting['date']}  {meeting['meeting_type']}  (portal meeting {meeting['portal_meeting_id']})")
     print(f"  body:    {meeting['body'] or '— not ingested'}")
+    if meeting['notice_url']:
+        print(f"  purpose: {call_of_meeting(notice_text(meeting['notice_url'])) or '—'}")
     print(f"  agenda:  {meeting['agenda_url'] or '—'}")
     print(f"  minutes: {meeting['minutes_url'] or 'not posted yet'}")
     for item in items:

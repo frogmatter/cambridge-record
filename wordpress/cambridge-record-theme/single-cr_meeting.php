@@ -16,6 +16,8 @@ while ( have_posts() ) :
     $body      = get_post_meta( $id, 'meeting_body', true ) ?: 'Cambridge School Committee';
     $embed     = get_post_meta( $id, 'cablecast_embed_url', true );
     $agenda    = get_post_meta( $id, 'agenda_url', true );
+    $purpose   = get_post_meta( $id, 'meeting_purpose', true );
+    $notice    = get_post_meta( $id, 'notice_url', true );
     $summary   = get_post_meta( $id, 'summary', true );
     $origin    = get_post_meta( $id, 'summary_origin', true );
     $corrections = (int) get_post_meta( $id, 'caption_corrections', true );
@@ -33,11 +35,17 @@ while ( have_posts() ) :
                 <?php endif; ?>
                 <?php if ( $agenda ) : ?>
                     <a href="<?php echo esc_url( $agenda ); ?>" rel="noopener">Official agenda ↗</a>
+                <?php elseif ( $notice ) : ?>
+                    <a href="<?php echo esc_url( $notice ); ?>" rel="noopener">Meeting notice ↗</a>
                 <?php endif; ?>
                 <?php if ( count( $languages ) > 1 ) : ?>
                     <span>Captions in <?php echo count( $languages ); ?> languages on the video player</span>
                 <?php endif; ?>
             </div>
+
+            <?php if ( $purpose ) : ?>
+                <p class="meeting-purpose measure">Called for the purpose of <?php echo esc_html( $purpose ); ?>.</p>
+            <?php endif; ?>
 
             <?php if ( $summary && $origin !== 'pending' ) : ?>
                 <div class="panel measure">

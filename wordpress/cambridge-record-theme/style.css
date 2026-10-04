@@ -2,7 +2,7 @@
 Theme Name:   Cambridge Record
 Theme URI:    https://mediatechaction.com
 Description:  Public theme for the Cambridge Record civic meeting archive. Meeting list, transcript search, and meeting pages with video + transcript. Reads data from the Cambridge Record plugin's REST API. Requires the Cambridge Record plugin.
-Version:      0.4.3
+Version:      0.5.1
 Author:       Matt / Cambridge Public Schools
 License:      CC BY-SA 4.0
 Text Domain:  cambridge-record
@@ -197,6 +197,7 @@ select {
     font: inherit; font-size: .9375rem; color: inherit;
     background: var(--paper); border: 1px solid var(--rule); border-radius: var(--radius);
     padding: .5rem .6rem;
+    max-width: 100%;   /* long subcommittee names on phones */
 }
 
 
@@ -265,6 +266,8 @@ select {
 .meeting-row__title a { text-decoration: none; }
 .meeting-row__title a::after { content: ""; position: absolute; inset: 0; } /* whole row clickable */
 .meeting-row__summary { grid-column: 2; margin: .35rem 0 0; color: var(--ink-2); font-size: .9375rem; max-width: 40rem; }
+/* Notices can run long (collective bargaining calls) — two lines in the list; the meeting page has it all */
+.meeting-row__purpose { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .meeting-row__meta {
     grid-column: 3; grid-row: 1;
     display: flex; gap: .4rem; flex-wrap: wrap; justify-content: flex-end;
@@ -284,6 +287,9 @@ select {
 
 .search-head { margin-bottom: 2rem; }
 .search-head .field { max-width: 40rem; }
+.search-help { max-width: 40rem; margin: .5rem 0 0; font-size: .875rem; color: var(--ink-3); }
+.search-filters { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem 1rem; max-width: 40rem; margin-top: 1rem; }
+.search-filters .search-summary { margin: 0 auto 0 0; }
 .search-summary { margin: 1rem 0 0; color: var(--ink-2); }
 
 .result-group { margin-top: 2.5rem; }
@@ -318,6 +324,7 @@ select {
 .meeting-head h1 { margin-bottom: .35rem; }
 .meeting-head .meta-line { display: flex; flex-wrap: wrap; gap: .5rem 1.25rem; color: var(--ink-2); font-size: .9375rem; }
 .meeting-head .meta-line a { color: var(--ink-2); }
+.meeting-head .meeting-purpose { margin: .75rem 0 0; color: var(--ink-2); }
 
 .meeting-layout {
     display: grid;

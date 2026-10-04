@@ -36,7 +36,7 @@ from improve_captions import correct_segments
 from match_agenda import fix_mojibake, time_agenda, time_votes
 
 from parse_minutes import docket_titles, minutes_text, parse_votes
-from scrape_agenda import get_portal_meetings, scrape_agenda_items
+from scrape_agenda import call_of_meeting, get_portal_meetings, notice_text, scrape_agenda_items
 
 ROOT = Path(__file__).parent
 ENV = dotenv_values(ROOT / '.env')
@@ -151,7 +151,7 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
 
     agenda = scrape_agenda_items(portal['agenda_url']) if portal['agenda_url'] else []
 
-    votes, minutes_titles = None, {}
+    votes, minutes_titles, text = None, {}, None
     if portal['minutes_url']:
         text = minutes_text(portal['minutes_url'])
         votes = parse_votes(text, source_url=portal['minutes_url'])
@@ -198,6 +198,17 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
         meta['agenda_url'] = portal['agenda_url']
     if portal.get('body'):
         meta['meeting_body'] = portal['body']
+    # Why the meeting was called — from the notice, else the minutes. Only
+    # for meetings without an agenda: a regular meeting's notice just says
+    # "for the purpose of discussing the agenda items listed below", or
+    # describes only its executive session.
+    purpose = None
+    if not portal['agenda_url']:
+        purpose = (call_of_meeting(notice_text(portal['notice_url'])) if portal.get('notice_url') else None) \
+            or call_of_meeting(text)
+    meta['meeting_purpose'] = purpose or ''
+    if portal.get('notice_url'):
+        meta['notice_url'] = portal['notice_url']
     if votes is not None:
         meta['votes_json'] = json.dumps(votes)
         meta['vote_count'] = len(votes)
