@@ -10,8 +10,14 @@ third-party requests (system fonts only).
 | URL | Template | Data |
 |---|---|---|
 | `/` | `front-page.php` + `assets/js/meetings.js` | `GET /wp-json/cambridge-record/v1/meetings` |
-| `/?s=term` | `search.php` + `assets/js/search.js` | `GET /wp-json/cambridge-record/v1/search?q=term&limit=50` |
+| `/?s=term` | `search.php` + `assets/js/search.js` | `GET /wp-json/cambridge-record/v1/search?q=term&limit=50` (grouped by meeting) |
 | `/meeting/{slug}/` | `single-cr_meeting.php` + `assets/js/meeting.js` | `GET /wp-json/wp/v2/meeting/{id}?_fields=id,meta` |
+| `/officials/`, `/official/{slug}/` | `archive-cr_official.php`, `single-cr_official.php` + `officials.js`, `official.js` | `GET /wp-json/cambridge-record/v1/officials[/{id}]` |
+| `/subcommittees/`, `/subcommittee/{slug}/` | `archive-cr_subcommittee.php`, `single-cr_subcommittee.php` | server-rendered from the plugin's `cr_subcommittee_members()` / `cr_body_meetings()` |
+
+The meeting list and search take `?body=` (e.g. `Governance Subcommittee`)
+to show one committee or subcommittee. Search matches words as a phrase
+and ignores quotes; the search page shows tips under the box.
 
 Everything else (e.g. an AI Constitution page) uses `index.php`.
 

@@ -8,7 +8,7 @@
 
     const { api, allMeetings, bodyOf, bodyLabel, fillBodySelect, setUrlParam, FULL_COMMITTEE, el, fmtDate, fmtTime, highlight, momentUrl, status, config } = window.CR;
 
-    const LIMIT = 50; // the endpoint caps results at 50
+    const LIMIT = 50; // flat results shown by plugins before 0.3.1 (the endpoint allows up to 200)
 
     const resultsEl = document.getElementById( 'search-results' );
     const summaryEl = document.getElementById( 'search-summary' );
