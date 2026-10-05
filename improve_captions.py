@@ -17,12 +17,14 @@ Usage:
     python improve_captions.py --report --show 11498    # one meeting, with details
     python improve_captions.py --export --show 11498    # corrected .vtt/.scc/.srt for Cablecast → exports/
     python improve_captions.py --vocabulary             # terms to paste into MediaScribe / Cablecast
+    python improve_captions.py --mediascribe            # the same as a MediaScribe import file → exports/
     python improve_captions.py --sample --show 11498 --at 0:02:17   # 10-min worksheet for a person to correct
     python improve_captions.py --score samples/2026-08-04_11498_137.txt  # error rates + staff time
 """
 
 import argparse
 import collections
+import csv
 import json
 import re
 import sqlite3
@@ -385,12 +387,62 @@ def score_sample(path):
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 
+MEDIASCRIBE_MAX = 50   # characters, for both columns
+
+
+def _sounds_like(phrase):
+    """
+    MediaScribe's sounds_like: letters, hyphens and apostrophes only.
+    'Jake Amara' → 'jake-amara', 'C.R.L.S.' → 'CRLS' (acronyms keep their
+    capitals, like MediaScribe's own 'MRI,MRI'). None if digits would be lost.
+    """
+    if re.search(r'\d', phrase):
+        return None
+    words = re.split(r'[\s/]+', phrase.replace('’', "'").strip())
+    out = []
+    for w in words:
+        w = re.sub(r"[^A-Za-z'\-]", '', w).strip("-'")
+        if w:
+            out.append(w if w.isupper() and len(w) > 1 else w.lower())
+    return '-'.join(out) or None
+
+
+def mediascribe_rows(terms=None):
+    """
+    (rows, skipped) for a MediaScribe vocabulary import:
+      every vocabulary term  → term, how it's spelled ('Jaikumar,jaikumar')
+      every fix wrong|right  → right, the mishearing ('Jaikumar,jake-amara')
+    Suggestions (?wrong|right) are left out: they're sometimes right, and the
+    caption engine would apply them every time.
+    """
+    terms = terms or load_terms()
+    rows, skipped, seen = [], [], set()
+    pairs = [(t, t) for t in terms['vocabulary']] + [(right, wrong) for wrong, right in terms['fixes']]
+    for content, heard in pairs:
+        if re.search(r'\s(?:and|or|of|the|to|a)$', content, re.I):
+            skipped.append((content, heard, 'not a term (part of a suggestion)'))
+            continue
+        sounds = _sounds_like(heard)
+        if not sounds:
+            skipped.append((content, heard, 'has digits or no letters'))
+            continue
+        if len(content) > MEDIASCRIBE_MAX or len(sounds) > MEDIASCRIBE_MAX:
+            skipped.append((content, heard, f'longer than {MEDIASCRIBE_MAX} characters'))
+            continue
+        key = (content.lower(), sounds.lower())
+        if key not in seen:
+            seen.add(key)
+            rows.append((content, sounds))
+    return rows, skipped
+
+
 def main():
     parser = argparse.ArgumentParser(description='Improve meeting captions with cambridge_terms.txt')
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--report', action='store_true', help='How much fixing do transcripts need?')
     mode.add_argument('--export', action='store_true', help='Write corrected .vtt/.scc/.srt for Cablecast (needs --show)')
     mode.add_argument('--vocabulary', action='store_true', help='Print terms for the caption dictionaries')
+    mode.add_argument('--mediascribe', action='store_true', help='Write the terms as a MediaScribe vocabulary import (CSV)')
     mode.add_argument('--sample', action='store_true', help='Write a correction worksheet (needs --show, --at)')
     mode.add_argument('--score', metavar='WORKSHEET', help='Score a corrected worksheet')
     parser.add_argument('--show', type=int, help='Cablecast show ID')
@@ -409,6 +461,19 @@ def main():
 
     if args.vocabulary:
         print('\n'.join(load_terms()['vocabulary']))
+        return
+
+    if args.mediascribe:
+        rows, skipped = mediascribe_rows()
+        out = ROOT / 'exports' / 'mediascribe_vocabulary.csv'
+        out.parent.mkdir(exist_ok=True)
+        with out.open('w', newline='', encoding='utf-8') as f:
+            w = csv.writer(f)
+            w.writerow(['content', 'sounds_like'])
+            w.writerows(rows)
+        print(f'{len(rows)} rows → {out}')
+        for content, heard, why in skipped:
+            print(f'  skipped "{content}" (heard as "{heard}"): {why}')
         return
 
     if args.export:

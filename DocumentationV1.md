@@ -233,8 +233,16 @@ header):
 
 Three ways the list improves captions:
 
-1. **Future recordings** — paste the vocabulary into MediaScribe and
-   Cablecast: `python improve_captions.py --vocabulary`
+1. **Future recordings** — MediaScribe (the captioning device since April
+   2026; it made far fewer errors than Cablecast's captions) imports a
+   vocabulary file: `python improve_captions.py --mediascribe` writes
+   `exports/mediascribe_vocabulary.csv` (`content,sounds_like`). Each term
+   is a row, and each fix teaches MediaScribe the mishearing
+   (`Jaikumar,jake-amara`); suggestions are left out. `sounds_like` takes
+   letters, hyphens and apostrophes only, so terms with numbers ("158
+   Spring Street") are skipped — type those into MediaScribe's own
+   vocabulary screen. Re-import after adding terms. For Cablecast's
+   dictionary, `--vocabulary` prints the plain list.
 2. **Past recordings on Cablecast** — export corrected captions, with the
    original timings, and upload them to the video in Cablecast:
    `python improve_captions.py --export --show 11498` → `exports/` gets
@@ -366,7 +374,8 @@ new files; if a page looks stale, hard-refresh (Cmd+Shift+R).
 | Fix vote times | WP admin → Meetings → Review times |
 | Caption report (what to add to the terms list) | `python improve_captions.py --report` |
 | Corrected captions for Cablecast | `python improve_captions.py --export --show ID` |
-| Vocabulary for MediaScribe / Cablecast | `python improve_captions.py --vocabulary` |
+| Vocabulary for MediaScribe (import file) | `python improve_captions.py --mediascribe` → `exports/` |
+| Vocabulary for Cablecast (plain list) | `python improve_captions.py --vocabulary` |
 | Measure editing time | `python improve_captions.py --sample --show ID --at h:mm:ss`, then `--score` |
 | Publish / unpublish | WP admin → Meetings → Status |
 | Logs | `pipeline.log` |
