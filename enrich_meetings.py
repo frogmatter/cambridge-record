@@ -94,6 +94,12 @@ def apply_review(items, decisions, embed):
         if not d:
             continue
         seconds = d.get('start_seconds')
+        # A vote's roll-call end must follow its (reviewed) start: agenda
+        # timing reads it. Keep the matched end only if it belongs to this time.
+        if 'end_seconds' in item:
+            end = item.get('end_seconds')
+            if seconds is None or end is None or not 0 <= end - seconds <= 300:
+                item['end_seconds'] = seconds
         item.update({
             'start_seconds': seconds,
             'deep_link_url': seek_url(embed, seconds) if (embed and seconds is not None) else None,
@@ -177,19 +183,30 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
     corrections = correct_segments(segments)
     transcript_changed = json.dumps(segments) != stored
 
+    # People's decisions from Meetings → Review times: reviewed votes anchor
+    # the matching (their neighbours can't slide onto their roll calls), then
+    # every reviewed time wins over the match — votes before agenda items are
+    # timed, since an item without its own mention is timed at its vote
     embed = current['meta'].get('cablecast_embed_url')
+    add_review_keys(agenda, votes or [])
+    review = json.loads(current['meta'].get('review_json') or '{}') or {}
+    # WordPress stores an empty decision list as [] (PHP's empty array), not {}
+    decisions = review.get('votes') or {}
+    agenda_decisions = review.get('agenda') or {}
+    reviewed = 0
     if segments:
         if votes:
-            time_votes(votes, segments)
+            pinned = {i: (None if d['status'] == 'cleared' else d.get('start_seconds'))
+                      for i, v in enumerate(votes) if (d := decisions.get(v['key']))}
+            time_votes(votes, segments, pinned)
+            reviewed += apply_review(votes, decisions, embed)
         time_agenda(agenda, votes or [], segments)
         for item in agenda + (votes or []):
             if item.get('start_seconds') is not None and embed:
                 item['deep_link_url'] = seek_url(embed, item['start_seconds'])
-
-    # People's decisions from Meetings → Review times win over the matching
-    add_review_keys(agenda, votes or [])
-    review = json.loads(current['meta'].get('review_json') or '{}')
-    reviewed = apply_review(votes or [], review.get('votes', {}), embed) + apply_review(agenda, review.get('agenda', {}), embed)
+    elif votes:
+        reviewed += apply_review(votes, decisions, embed)
+    reviewed += apply_review(agenda, agenda_decisions, embed)
 
     meta = {
         'agenda_json':       json.dumps(agenda),

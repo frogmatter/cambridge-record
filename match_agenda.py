@@ -21,7 +21,9 @@ Every time written here is a best guess from captions: items carry
 match_method and match_score so a person can review them.
 """
 
+import json
 import re
+from pathlib import Path
 
 VOTE_WORDS = {
     'yes':     re.compile(r'\b(?:yes|yea|yeah|aye)\b', re.I),
@@ -91,6 +93,32 @@ MIN_NAME_BURST  = 5    # …or this many titles read out in a row (answers not c
 NAME_BURST_GAP  = 8    # max seconds between titles in a burst
 NAME_BURST_SPAN = 45   # max seconds for the whole burst
 DUPLICATE_GAP   = 20   # roll calls closer than this with no motion between are one
+MIN_SURNAMES    = 4    # different members named…
+SURNAME_SPAN    = 25   # …within this many seconds reads as the clerk calling the roll
+SURNAME_GAP     = 15   # a roll call keeps going while names follow within this
+
+# Caption spellings of members' surnames that cambridge_terms.txt doesn't fix
+# everywhere (captions are corrected before matching, but not every variant)
+SURNAME_VARIANTS = {
+    'jaikumar': r'ja\w*k\w*ma?r|jamar|jacomar|jake\s?(?:gar|kaar|mark|omar|camar)',
+    'dube':     r'dube|dubi|duby|doobie|darby|dubai',
+    'siddiqui': r'sidd?iq|saeki',
+}
+
+
+def _member_patterns(roster=Path(__file__).parent / 'officials.json'):
+    """{surname: regex} for the roster's voting members, plus caption variants."""
+    try:
+        people = json.loads(Path(roster).read_text())['officials']
+    except (OSError, ValueError, KeyError):
+        return {}
+    out = {}
+    for p in people:
+        if not p.get('is_voting_member'):
+            continue
+        key = p['minutes_name'].split()[-1].lower()            # 'de Paula Santos' → 'santos'
+        out[key] = re.compile(rf"\b(?:{SURNAME_VARIANTS.get(key, re.escape(key))})", re.I)
+    return out
 
 
 def _tokens(segments):
@@ -123,6 +151,23 @@ def _pairs(tokens):
                 pairs.append({'time': t2, 'index': i, 'vote': VOTE_TOKENS[w2], 'title': title})
                 break
     return pairs
+
+
+def _introduces_item(segments, t0):
+    """
+    True when names read at t0 follow the chair announcing an item ("that
+    brings us to the school committee agenda… brought forward by Member de
+    Paula Santos, Member Harding and Member Hudson") with no motion or roll
+    call in between: sponsors, not a vote.
+    """
+    lead = [s for s in segments if t0 - 30 <= float(s['start_seconds']) <= t0]
+    for k in range(len(lead) - 1, -1, -1):
+        text = lead[k]['text']
+        if ROLL_CALL_RE.search(text) or MOTION_RE.search(text):   # "I move to adopt" is a motion, not a transition
+            return False
+        if re.search(TRANSITION, text, re.I):
+            return True
+    return False
 
 
 def find_roll_calls(segments):
@@ -187,6 +232,8 @@ def find_roll_calls(segments):
             continue
         if any(r['start'] - 5 <= t0 <= r['end'] + 5 for r in found):
             continue
+        if _introduces_item(segments, t0):
+            continue
         ends_with_chair = burst[-1][1] == 'chair'
         announced = _announced_tally(segments, t1)
         if not (ends_with_chair or announced):
@@ -198,6 +245,50 @@ def find_roll_calls(segments):
         if not announced and not SECONDED_RE.search(lead_in):
             continue
         kind = 'attendance' if re.search(r'members present|quorum', lead_in[-400:], re.I) and not announced else 'roll_call'
+        start = next((tokens[m][0] for m in markers if t0 - 15 <= tokens[m][0] <= t0), t0)
+        found.append({'start': start, 'end': t1, 'counts': {'yes': 0, 'no': 0, 'absent': 0, 'present': 0},
+                      'pairs': 0, 'kind': kind, 'counts_known': False})
+
+    # Third signal: four or more different members named within seconds of
+    # each other, after a motion or second. On some recordings neither the
+    # titles nor the answers survive captioning ("Ms. Cristo, could be a local
+    # Memba Harding, Member Hudson…"), but the surnames do. A roll of names
+    # with no motion before it is an announcement (subcommittee assignments)
+    # or, with "present", the attendance roll call.
+    patterns = _member_patterns()
+    hits = [(float(s['start_seconds']), {k for k, rx in patterns.items() if rx.search(s['text'])}) for s in segments]
+    hits = [(t, names) for t, names in hits if names]
+    # The chair moving on ends a roll call: the next item's sponsors are names
+    # too ("…Chair Weinstein. OK, we're moving to motion number 26031… from
+    # member Hudson, member Harding and member Jaikumar")
+    moves_on = [float(x['start_seconds']) for x in segments if re.search(TRANSITION, x['text'], re.I)]
+    def continues(a, b):
+        return not any(a < m <= b for m in moves_on)
+    i = 0
+    while i < len(hits):
+        t0, seen, j = hits[i][0], set(), i
+        while j < len(hits) and hits[j][0] - t0 <= SURNAME_SPAN and (j == i or continues(hits[j - 1][0], hits[j][0])):
+            seen |= hits[j][1]
+            j += 1
+        if len(seen) < MIN_SURNAMES:
+            i += 1
+            continue
+        # …and keeps going while names follow, until the chair moves on
+        while j < len(hits) and hits[j][0] - hits[j - 1][0] <= SURNAME_GAP and continues(hits[j - 1][0], hits[j][0]):
+            j += 1
+        t1 = hits[j - 1][0]
+        i = j
+        if any(r['start'] - 5 <= t1 and t0 <= r['end'] + 5 for r in found) or _introduces_item(segments, t0):
+            continue
+        lead_in = ' '.join(_clean(s['text']) for s in segments if t0 - 90 <= float(s['start_seconds']) <= t0 + 5)
+        during = ' '.join(_clean(s['text']) for s in segments if t0 <= float(s['start_seconds']) <= t1 + 3)
+        if re.search(r'members present|quorum', lead_in[-300:], re.I) or \
+                len(re.findall(r'\bpresent\b', during, re.I)) >= MIN_SURNAMES:
+            kind = 'attendance'
+        elif MOTION_RE.search(lead_in) or ROLL_CALL_RE.search(lead_in) or _announced_tally(segments, t1):
+            kind = 'roll_call'
+        else:
+            continue
         start = next((tokens[m][0] for m in markers if t0 - 15 <= tokens[m][0] <= t0), t0)
         found.append({'start': start, 'end': t1, 'counts': {'yes': 0, 'no': 0, 'absent': 0, 'present': 0},
                       'pairs': 0, 'kind': kind, 'counts_known': False})
@@ -286,22 +377,47 @@ SECTION_CONTEXT = {
     '13': r'\badjourn',
 }
 PAIR_BONUS = 0.5   # per matched pair: prefer matching every vote over a higher-scoring subset
+SPECIFIC_SECTIONS = {'1', '3'}   # votes judged by their section's words alone
+FAR_DOCKET = 0.7   # docket said since the previous roll call, but not just before this one
+PIN_SCORE  = 10.0  # a reviewed vote's own roll call: always paired
+PIN_REACH  = 150   # a reviewed time (the motion) is at most this long before its roll call
 
 
 CONTEXT_AFTER = 15   # seconds after a roll call where the chair names the result ("…26001 is tabled")
+CONTEXT_NEAR = 120   # topic words ("records", "adjourn") count only this close before a roll call:
+                     # further back they're just discussion, and every roll call would match
 
 
-def _context_text(segments, start, end):
-    """Captions between two times, cleaned for matching."""
-    return ' '.join(_clean(s['text']) for s in segments if start <= float(s['start_seconds']) <= end)
+def _context_text(segments, start, end, roll_end=None):
+    """
+    Captions between two times, cleaned for matching. After the roll call
+    (roll_end) only the result counts: the chair moving on to the next item
+    ("we're moving to motion number 26031") belongs to the next vote.
+    """
+    out = []
+    for s in segments:
+        t = float(s['start_seconds'])
+        if not start <= t <= end:
+            continue
+        text = _clean(s['text'])
+        if roll_end is not None and t > roll_end:
+            text = re.split(TRANSITION, text, maxsplit=1, flags=re.I)[0]   # "26004 is adopted | and that brings us to 26005"
+        out.append(text)
+    return ' '.join(out)
 
 
-def _context_score(vote, text):
+def _context_score(vote, text, near=None):
     """
     0–1 from what's said around the roll call: 1 if the vote's docket number
-    (or late order / resolution) is mentioned, or its result word ("table",
-    "adjourn"); 0.5 when there's nothing distinctive to look for.
+    (or late order / resolution) is mentioned since the previous roll call,
+    or its result word ("table", "adjourn") just before it (near); 0.5 when
+    there's nothing distinctive to look for.
     """
+    near = text if near is None else near
+    # Records and public comment are named for themselves; "accepted" or
+    # "closed" alone would match half the roll calls in a meeting
+    if vote.get('section') in SPECIFIC_SECTIONS:
+        return 1.0 if re.search(SECTION_CONTEXT[vote['section']], near, re.I) else 0.0
     cues = [_docket_patterns(d) for d in vote.get('dockets', [])]
     words = RESULT_WORDS.get(vote['result'])
     section_words = SECTION_CONTEXT.get(vote.get('section'))
@@ -312,20 +428,22 @@ def _context_score(vote, text):
         words = section_words if not words else f'{words}|{section_words}'
     if not cues and not words:
         return 0.5
-    if any(c.search(text) for c in cues):
+    if any(c.search(near) for c in cues):
         return 1.0
-    if words and re.search(words, text, re.I):
+    if any(c.search(text) for c in cues):
+        return FAR_DOCKET   # said, but well before this roll call: maybe an item that never came to a vote
+    if words and re.search(words, near, re.I):
         # For a docketed vote, a topic word ("table") without the number is weak evidence
         return 0.5 if cues else 1.0
     return 0.0
 
 
-def _pair_score(vote, rc, context=''):
+def _pair_score(vote, rc, context='', near=None):
     """
     0–1: how well a caption roll call matches a minutes vote — half from the
     tally agreeing, half from the right docket/topic being said nearby.
     """
-    return 0.5 * _tally_score(vote, rc) + 0.5 * _context_score(vote, context) if _tally_score(vote, rc) else 0.0
+    return 0.5 * _tally_score(vote, rc) + 0.5 * _context_score(vote, context, near) if _tally_score(vote, rc) else 0.0
 
 
 def _tally_score(vote, rc):
@@ -354,19 +472,50 @@ def _tally_score(vote, rc):
     return max(0.0, 1 - diff / (2 * members))
 
 
-def align_votes(votes, roll_calls, segments):
+def _pin_roll_call(vote, roll_calls, seconds):
+    """
+    The roll call a reviewed time points at: the first one starting just
+    after it, of the kind the minutes record — chairs sometimes start "all
+    those in favor" and switch to a roll call.
+    """
+    voice = vote.get('method') == 'voice' and not vote.get('roll_call')
+    after = [j for j, rc in enumerate(roll_calls) if seconds - 15 <= rc['start'] <= seconds + PIN_REACH]
+    after.sort(key=lambda j: ((roll_calls[j]['kind'] == 'voice') != voice, roll_calls[j]['start']))
+    return after[0] if after else None
+
+
+def align_votes(votes, roll_calls, segments, pinned=None):
     """
     Monotonic alignment (like a weighted longest-common-subsequence):
     returns {vote_index: (roll_call_index, score)} maximizing total score.
+
+    pinned: {vote_index: seconds or None} from people's Review times
+    decisions. A reviewed vote keeps the roll call at its time and no other
+    vote can take it; "not in the video" (None) takes none. The rest are
+    aligned around them, so one correction stops the votes beside it from
+    shifting onto the wrong roll calls.
     """
     n, m = len(votes), len(roll_calls)
     # The discussion before a roll call, plus what the chair says after it
     # ("…a vote of 7 in the affirmative, 26001 is tabled"), up to the next one
     contexts = [_context_text(segments,
-                              roll_calls[j - 1]['end'] + CONTEXT_AFTER if j else 0.0,
-                              min(rc['end'] + CONTEXT_AFTER, roll_calls[j + 1]['start'] if j + 1 < m else rc['end'] + CONTEXT_AFTER))
+                              roll_calls[j - 1]['end'] + 5 if j else 0.0,
+                              min(rc['end'] + CONTEXT_AFTER, roll_calls[j + 1]['start'] if j + 1 < m else rc['end'] + CONTEXT_AFTER),
+                              rc['end'])
                 for j, rc in enumerate(roll_calls)]
-    score = {(i, j): _pair_score(votes[i], roll_calls[j], contexts[j]) for i in range(n) for j in range(m)}
+    nears = [_context_text(segments,
+                           max(rc['start'] - CONTEXT_NEAR, roll_calls[j - 1]['end'] if j else 0.0),
+                           rc['end'] + CONTEXT_AFTER, rc['end'])
+             for j, rc in enumerate(roll_calls)]
+    score = {(i, j): _pair_score(votes[i], roll_calls[j], contexts[j], nears[j]) for i in range(n) for j in range(m)}
+    for i, seconds in (pinned or {}).items():
+        j_pin = _pin_roll_call(votes[i], roll_calls, seconds) if seconds is not None else None
+        for j in range(m):
+            score[(i, j)] = PIN_SCORE if j == j_pin else 0.0
+        if j_pin is not None:
+            for k in range(n):
+                if k != i:
+                    score[(k, j_pin)] = 0.0
     best = [[0.0] * (m + 1) for _ in range(n + 1)]
     move = [[None] * (m + 1) for _ in range(n + 1)]
     for i in range(1, n + 1):
@@ -412,10 +561,15 @@ def _motion_time(segments, roll_start, not_before):
     return roll_start
 
 
-def time_votes(votes, segments):
-    """Set start_seconds / roll_call_seconds / match fields on minutes votes, in place."""
+def time_votes(votes, segments, pinned=None):
+    """
+    Set start_seconds / roll_call_seconds / match fields on minutes votes, in
+    place. pinned: {position in votes: reviewed seconds, or None for "not in
+    the video"} — see align_votes. The caller still applies the reviewed
+    times themselves afterwards.
+    """
     roll_calls = find_roll_calls(segments)
-    pairs = align_votes(votes, roll_calls, segments)
+    pairs = align_votes(votes, roll_calls, segments, pinned)
 
     prev_end = 0.0
     for i, v in enumerate(votes):
@@ -441,10 +595,10 @@ def time_votes(votes, segments):
 # ── 3. Agenda items and sections ───────────────────────────────────────────────
 
 def _docket_patterns(docket):
-    """'26-177' as spoken in captions: '26177', '26-177', '26 177', 'item 177'."""
+    """'26-177' as spoken in captions: '26177', '26-177', '26 177', '26,177', 'item 177'."""
     year, num = docket.split('-')
     # also "item 25, 002" — captions sometimes mangle the year but keep the number
-    return re.compile(rf'\b{year}\s?-?\s?{num}\b|\b(?:item|motion|number)\s+(?:\d{{2}},?\s+)?{num}\b', re.I)
+    return re.compile(rf'\b{year}\s?[-,]?\s?{num}\b|\b(?:item|motion|number)\s+(?:\d{{2}},?\s+)?{num}\b', re.I)
 
 
 def _first_mention(segments, pattern, after, before=None):

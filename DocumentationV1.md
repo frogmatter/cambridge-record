@@ -512,21 +512,38 @@ artifacts ("S antos", "YE A", "PRESNT", "Memer").
 1. Find roll calls in the captions — title→vote pairs ("Member. Hudson.
    Yes."); or, where members' answers weren't captioned, a burst of
    titles read out ending with the chair, or followed by the chair's
-   "on a vote of 7 in the affirmative".
+   "on a vote of 7 in the affirmative"; or four or more members'
+   **surnames** (from `officials.json`) read within 25 seconds after a
+   motion — on some recordings only the names survive captioning. Names
+   read just after the chair announces an item ("brought forward by
+   Member de Paula Santos, Member Harding…") are sponsors, not a vote,
+   and a roll call ends when the chair moves on.
 2. Pair roll calls with minutes votes in order, scoring tally agreement
-   and whether the item's docket number (or topic word) is said nearby.
+   and whether the item's docket number is said since the previous roll
+   call (weaker the further back) or its topic word just before it
+   ("records", "adjourn" — further back they're just discussion).
    Leftover votes can pair out of order — minutes aren't always
    chronological.
-3. A vote's time is the motion just before its roll call.
-4. Agenda items: first mention of their docket number within their
-   section; sections: the chair's transition ("that brings us to
-   unfinished business").
+3. **Review times decisions anchor the pairing**: a reviewed vote keeps
+   the roll call at its time, so its neighbours can't slide onto it, and
+   "not in the video" takes none. Every correction makes the next run
+   better around it.
+4. A vote's time is the motion just before its roll call.
+5. Agenda items: first mention of their docket number within their
+   section (or their vote's reviewed time); sections: the chair's
+   transition ("that brings us to unfinished business").
 
 Every time carries `match_method` and `match_score`; low scores go to
-Review times. As of September 2026: 95 of 118 official votes placed
-automatically.
+Review times.
 
----
+**How well it works.** The October 2026 review checked all 118 official
+votes against the captions by hand. Before that, the matcher placed 82
+right, 13 confidently on the wrong roll call (a missed roll call shifted
+every vote after it) and left 23 unplaced. Tested against those checked
+times, it now places 101 right, 8 wrong and 9 unplaced, without any
+decisions to anchor it; the 5 confident errors left are all in meetings
+whose minutes are themselves wrong. To re-test after a change, compare
+`time_votes()` on each meeting's captions with its reviewed times.
 
 ## The WordPress data model
 
@@ -676,6 +693,14 @@ A REST update (`POST /wp/v2/meeting/{id}` with `meta`) saves the post,
 fires `save_post`, and only then writes the meta. Anything rebuilt on
 `save_post` reads the old values — so the vote index is *dropped* on save
 and on meta writes, and rebuilt on the next read.
+
+**15. The minutes are the record, and sometimes wrong**  
+The October 2026 review found a copied roll call (6/2 #26-124: two YEAs
+recorded as NAY), docket typos (#26-60 for #26-160; #26-064 for #26-046;
+#26-148 for #26-127), consent votes listing items that were pulled and
+voted separately (1/6, 6/16), and a duplicated "public hearing closed"
+(5/5). The site shows what the minutes say; send corrections to the
+School Committee office.
 
 ---
 
