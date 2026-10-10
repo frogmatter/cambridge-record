@@ -24,6 +24,7 @@ import requests
 from dotenv import load_dotenv
 from fetch_captions import fetch_hls_captions
 from scrape_agenda import FULL_COMMITTEE, find_portal_meeting, meeting_title
+from match_agenda import caption_votes
 
 load_dotenv()
 
@@ -400,7 +401,7 @@ def fetch_transcript(url):
 VOTE_PATTERNS = [
     r'\ball in favor\b',
     r'\broll call vote\b',
-    r'\bmotion (?:passes|carries|fails)\b',
+    r'\b(?:vote|motion) (?:passes|passed|carries|carried|fails|failed)\b',
     r'\bunanimously (?:approved|adopted|passed)\b',
     r'\bvote[sd]?\s+\d+\s*(?:to|–|-)\s*\d+\b',
 ]
@@ -482,22 +483,16 @@ def push_segments_json(wp_id, segments, show_id):
             'deep_link_url': build_timestamped_url(show_id, seg['start_seconds']),
         })
 
-    # Count votes for the meeting-level meta
-    vote_count = sum(1 for s in enriched if s.get('is_vote'))
-
-    # Build votes_json from flagged segments
-    votes = []
-    for seg in enriched:
-        if seg.get('is_vote'):
-            votes.append({
-                'segment_index': seg['index'],
-                'start_seconds': seg['start_seconds'],
-                'deep_link_url': seg['deep_link_url'],
-                'raw_context':   seg['text'],
-                'result':        'unknown',
-                'vote_for':      None,
-                'vote_against':  None,
-            })
+    # Possible votes until the minutes are posted: every roll call or voice
+    # vote in the captions (match_agenda.caption_votes); enrich_meetings.py
+    # refreshes them on each run and replaces them with the minutes' votes
+    votes = caption_votes(enriched)
+    for v in votes:
+        v['deep_link_url'] = build_timestamped_url(show_id, v['start_seconds'])
+        for seg in enriched:   # so search results tag the vote's lines
+            if v['start_seconds'] <= seg['start_seconds'] <= v['end_seconds']:
+                seg['is_vote'] = True
+    vote_count = len(votes)
 
     r = requests.post(
         f'{WP_BASE}/meeting/{wp_id}',
@@ -517,7 +512,7 @@ def push_segments_json(wp_id, segments, show_id):
     )
     r.raise_for_status()
     log.info(f'  WP post {wp_id}: pushed {len(enriched)} segments, '
-             f'{vote_count} vote(s) flagged')
+             f'{vote_count} possible vote(s) from roll calls in the captions')
 
 
 # ── Main pipeline ──────────────────────────────────────────────────────────────

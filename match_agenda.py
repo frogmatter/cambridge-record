@@ -592,6 +592,85 @@ def time_votes(votes, segments, pinned=None):
     return votes
 
 
+# What the chair says after a vote. "Vote passes / fails" and "motion
+# carries" are rare (14 times in 35 meetings, nearly always right after a
+# roll call), so they set a result rather than finding votes on their own:
+# in discussion, "a motion passed recently…" is not a vote.
+RESULT_RE = re.compile(
+    r'\b(?:vote|motion)\s+(?P<fail>fails|failed|does not pass|did not pass)\b'
+    r'|\b(?:vote|motion)\s+(?P<pass>passes|passed|carries|carried)\b'
+    r'|\b(?:is|are|has been|have been)\s+(?P<word>adopted|approved|closed|tabled|referred|extended|adjourned|accepted|postponed|passed)\b',
+    re.I)
+RESULT_AFTER = 30   # seconds after a roll call to listen for the result
+
+
+def _announced_result(segments, after):
+    """('closed', True) from the chair's words just after a roll call, or ('unknown', None)."""
+    for s in segments:
+        t = float(s['start_seconds'])
+        if after <= t <= after + RESULT_AFTER:
+            text = re.split(TRANSITION, _clean(s['text']), maxsplit=1, flags=re.I)[0]   # not the next item
+            m = RESULT_RE.search(text)
+            if m:
+                if m.group('fail'):
+                    return 'failed', False
+                return (m.group('word') or 'passed').lower(), True
+    return 'unknown', None
+
+
+def _motion_words(segments, start, roll_start):
+    """The motion as said, from its first cue to the roll call ('…entertain a motion to close public comment')."""
+    text = ' '.join(_clean(s['text']) for s in segments if start <= float(s['start_seconds']) < roll_start)
+    if not text:   # no motion cue: the line just before the roll call
+        before = [s for s in segments if float(s['start_seconds']) < roll_start][-2:]
+        text = ' '.join(_clean(s['text']) for s in before)
+    text = re.sub(r'^(?:(?:uh|um|so|okay|ok|all right|and|yeah)[,.]?\s+)+', '', text.strip(), flags=re.I)
+    return text[:240]
+
+
+def caption_votes(segments):
+    """
+    Possible votes for a meeting whose minutes aren't posted yet: one per roll
+    call or voice vote in the captions (find_roll_calls — 113 of the 118
+    official votes reviewed in October 2026), timed at its motion, labelled
+    with the motion as said, with the tally where members' answers were
+    captioned and the result where the chair announced it. The minutes'
+    votes replace these once they're posted.
+    """
+    votes, prev_end = [], 0.0
+    members = len(_member_patterns()) or 7
+    for rc in find_roll_calls(segments):
+        if rc['kind'] == 'attendance':
+            continue
+        start = _motion_time(segments, rc['start'], prev_end)
+        result, passed = _announced_result(segments, rc['end'])
+        # A tally only when the captions account for every member: answers
+        # are often missed ("Member Harding. Member Hudson. Member Jaikumar. Yes.")
+        # or repeated, and "4–0" for a 6–0 vote would be wrong on the page
+        counts = rc['counts'] if rc.get('counts_known') and rc['kind'] != 'voice' else {}
+        if counts and sum(counts.values()) != members:
+            counts = {}
+        votes.append({
+            'index':             len(votes),
+            'source':            'captions',
+            'method':            'voice' if rc['kind'] == 'voice' else 'roll_call',
+            'motion_text':       '',
+            'raw_context':       _motion_words(segments, start, rc['start']),
+            'result':            result,
+            'passed':            passed,
+            'vote_for':          counts.get('yes') if counts else None,
+            'vote_against':      counts.get('no') if counts else None,
+            'vote_absent':       counts.get('absent') if counts else None,
+            'start_seconds':     round(start, 2),
+            'roll_call_seconds': round(rc['start'], 2),
+            'end_seconds':       round(rc['end'], 2),
+            'matched':           True,
+            'match_method':      'voice_vote' if rc['kind'] == 'voice' else 'roll_call',
+        })
+        prev_end = rc['end']
+    return votes
+
+
 # ── 3. Agenda items and sections ───────────────────────────────────────────────
 
 def _docket_patterns(docket):

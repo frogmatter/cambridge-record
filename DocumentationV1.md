@@ -136,10 +136,15 @@ now), and places votes, agenda items and sections on the video. It is
 **safe to re-run as often as you like**:
 
 - It **never changes** a meeting's title, date, or published status.
-- It **keeps your Review times decisions** — they're re-applied after the
-  automatic matching.
-- Until minutes are posted, the meeting keeps the caption-based "possible
-  votes" guesses; once they're posted, official votes replace them.
+- It **keeps your Review times decisions** — they anchor the automatic
+  matching (neighbouring votes can't slide onto them) and win over it.
+- Until minutes are posted, the meeting shows **possible votes** from the
+  captions: one per roll call or voice vote the matcher finds (it found
+  113 of the 118 official votes reviewed in October 2026), at its motion,
+  labelled with the motion as said, with the chair's result ("public
+  comment is closed", "the vote fails") and a tally only when the captions
+  account for every member. Once minutes are posted, official votes
+  replace them.
 
 After it runs, published meetings update on the site straight away —
 no re-publishing needed. Check **Review times** for new items.
@@ -567,8 +572,10 @@ whose minutes are themselves wrong. To re-test after a change, compare
 **Meta on `cr_meeting`:**
 - `segments_json` — every caption cue with timestamps
 - `agenda_json` — sections and items, with times, docket numbers, vote links
-- `votes_json` — official votes from the minutes (or caption-based guesses
-  before minutes are posted), with roll calls, times and match scores
+- `votes_json` — official votes from the minutes (`source: minutes`), with
+  roll calls, times and match scores; or, before minutes are posted,
+  possible votes from the captions' roll calls (`source: captions`, from
+  `match_agenda.caption_votes()`, never listed in Review times)
 - `review_json` — people's decisions from Review times
 - `meeting_body` — `Cambridge School Committee` or one subcommittee
   (`Governance Subcommittee`, …), from `classify_meeting()`

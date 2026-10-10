@@ -34,7 +34,7 @@ import requests
 from dotenv import dotenv_values
 
 from improve_captions import correct_segments
-from match_agenda import fix_mojibake, time_agenda, time_votes
+from match_agenda import caption_votes, fix_mojibake, time_agenda, time_votes
 
 from parse_minutes import docket_titles, minutes_text, parse_votes
 from scrape_agenda import call_of_meeting, get_portal_meetings, notice_text, scrape_agenda_items
@@ -232,6 +232,14 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
     if votes is not None:
         meta['votes_json'] = json.dumps(votes)
         meta['vote_count'] = len(votes)
+    elif segments:
+        # No minutes yet: possible votes from the roll calls in the captions
+        guesses = caption_votes(segments)
+        for v in guesses:
+            if embed:
+                v['deep_link_url'] = seek_url(embed, v['start_seconds'])
+        meta['votes_json'] = json.dumps(guesses)
+        meta['vote_count'] = len(guesses)
     payload = {'meta': meta}
     meta['caption_corrections'] = corrections
     if transcript_changed:
@@ -255,7 +263,7 @@ def enrich_show(show_id, wp_id, portal_meetings=None, dry_run=False):
     log.info(f"  Show {show_id} → WP {wp_id}: {summary['portal']} | "
              f"{summary['agenda_items']} agenda items ({summary['agenda_timed']}/{len(agenda)} rows timed) | "
              + (f"{len(votes)} votes from minutes ({summary['votes_timed']} placed in video)" if votes is not None
-                else 'minutes not posted yet (caption vote flags kept)')
+                else f"minutes not posted yet ({meta.get('vote_count', 0)} possible votes from captions)")
              + (f" | repaired {repaired} garbled transcript lines" if repaired else '')
              + (f" | {corrections} caption fixes" if corrections else '')
              + (f" | kept {reviewed} reviewed time(s)" if reviewed else ''))
