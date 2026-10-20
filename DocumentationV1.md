@@ -174,10 +174,43 @@ highlighted. Click any transcript line to jump there. Then:
 - **Not in the video** — e.g. votes taken in executive session.
 - **Undo my decision** — restores what the pipeline had found.
 
-Decisions take effect on the public site immediately and are kept when
-the pipeline re-runs. To spot-check a meeting the pipeline was confident
+Decisions take effect on the public site immediately, are kept when the
+pipeline re-runs, and anchor its matching (see *Agendas, votes and the
+video timeline*). To spot-check a meeting the pipeline was confident
 about, pick it in the Meeting menu and tick **Show every vote in this
 meeting**.
+
+Each decision records who made it. Decisions Claude drafted from the
+captions and Matt approved are applied through the **Claude Assistant**
+account (an Editor; its Application Password is `REVIEW_WP_USERNAME` /
+`REVIEW_WP_APP_PASSWORD` in `.env`), so the record shows which times a
+person checked against the video and which were checked from captions.
+
+### The minutes, and the clerk
+
+The minutes are the official record, and the site shows what they say.
+The October 2026 check of every 2026 vote found that nearly all remaining
+vote problems came from the minutes, not the captions or the matcher:
+wrong docket numbers (#26-60 for #26-160), a roll call copied from the
+vote above it (6/2 #26-124), consent votes listing items that were pulled,
+unusual wording the parser misses ("rolling call vote"), and minutes
+posted weeks late. Each costs an hour to work around here and fixes only
+the site's copy.
+
+So the fix is at the source. A note to the clerk (drafted October 10, in
+`reports/clerk_note_2026-10-10.md`) asks for:
+
+- a **vote log** kept during the meeting —
+  `exports/School_Committee_Vote_Log.xlsx`, one row per vote with
+  dropdowns, tallies, a Check column, and the vote's **minutes sentence
+  written in the standard form**; its Members tab holds the roster in
+  roll-call order, so it never needs rebuilding;
+- the same sentence form for every vote; consent votes listing only the
+  items actually voted; draft minutes within about a week.
+
+On this side, stop repairing minutes meeting by meeting. When something
+doesn't line up, note it for the clerk; a "minutes check" report after
+each enrich (see *What's not built yet*) would make that routine.
 
 ### Fixing things
 
@@ -377,6 +410,8 @@ new files; if a page looks stale, hard-refresh (Cmd+Shift+R).
 | Check what the parser reads from minutes | `python parse_minutes.py <minutes PDF URL>` |
 | Update the roster | edit `officials.json`, then `python sync_officials.py` |
 | Fix vote times | WP admin → Meetings → Review times |
+| Score the vote matcher (before/after changing it) | `python evaluate_matching.py [-v] [--anchored]` |
+| Vote log for the clerk | `exports/School_Committee_Vote_Log.xlsx` |
 | Caption report (what to add to the terms list) | `python improve_captions.py --report` |
 | Corrected captions for Cablecast | `python improve_captions.py --export --show ID` |
 | Vocabulary for MediaScribe (import file) | `python improve_captions.py --mediascribe` → `exports/` |
@@ -720,10 +755,17 @@ School Committee office.
 
 ---
 
-## What's working (as of October 3, 2026)
+## What's working (as of October 19, 2026)
 
-- ✅ 34 meetings (Jan–Sep 2026), all published: 23 full-committee Regular
-  and Special Meetings, a Budget Workshop, and 10 subcommittee meetings
+- ✅ 35 meetings (Jan 5 – Oct 6, 2026), all published: 24 full-committee
+  Regular and Special Meetings, a Budget Workshop, and 10 subcommittee
+  meetings
+- ✅ Every 2026 official vote checked against the captions (Oct 4–10; 71
+  Review times decisions). The matcher scores 100/117 right on its own,
+  114/117 anchored on those decisions (`evaluate_matching.py`)
+- ✅ Possible votes from the captions' roll calls before minutes arrive
+- ✅ MediaScribe captions with the Cambridge vocabulary: on 10/6 every
+  member's name was spelled right (65–81% Apr–Sep)
 - ✅ Subcommittee pages (members, meetings, scoped search), linked from
   officials and meetings; the meeting list and search filter by body
 - ✅ Meetings other than Regular Meetings show why they were called (from the notice)
@@ -731,8 +773,6 @@ School Committee office.
 - ✅ Transcripts with per-cue timestamps; the transcript follows the video
 - ✅ Search across every meeting, grouped by meeting, with agenda matches
 - ✅ Agendas from the CPS portal, with times in the video
-- ✅ Official votes from the minutes (118), 95 placed in the video
-  automatically; the rest in Review times
 - ✅ Officials pages with every member's roll-call voting record
 - ✅ Review times screen for checking and correcting vote placements
 - ✅ Draft/publish workflow (pipeline creates drafts, a person publishes)
@@ -744,6 +784,19 @@ School Committee office.
 **Private individuals.** Residents often take part in subcommittee
 conversations, and the minutes name them — the site should never build
 pages or search facets for private individuals, only for officials.
+
+**Minutes parser fixes** — `parse_minutes.py` misses 9/1's #26-180
+adoption and #26-197's "rolling call vote", 9/15's adjournment, and 1/5's
+chair election (and labels the vice chair election "Chair Weinstein closed
+the floor for nominations — Member Dube elected"). Adding votes renumbers
+a meeting's votes after them, and Review times decisions are keyed by
+number, so fix the parser *before* reviewing a meeting's votes. 9/1's
+review draft waits on this (`reports/review_oct10/draft.json`).
+
+**A "minutes check" report** — after each enrich, list votes the parser
+couldn't read, dockets not on that meeting's agenda, consent votes that
+include pulled items, and tallies that differ from the captions: a few
+lines per meeting to forward to the clerk.
 
 **Pages that follow an item across meetings** — one page per docket
 number (e.g. #26-125, tabled on 6/2 and 8/4, back on 9/1) built from
@@ -807,8 +860,13 @@ search, Review times
 **Done (Oct 2–3):** paginated meeting index, vote index, subcommittee
 meetings and pages, committee filter, meeting purposes, search tips, the
 clerk's caption-accuracy worksheets  
-**Next:** work through Review times; item-history pages; search across
-caption lines (with the speed fix)  
+**Done (Oct 4–10):** every 2026 vote checked against the captions;
+matcher rebuilt (missed roll calls no longer shift votes; reviewed times
+anchor it); MediaScribe vocabulary export and the 10/6 result; possible
+votes from roll calls; a vote-log template and note for the clerk  
+**Next:** send the clerk note with the vote log; parser fixes, then 9/1's
+review; the three 9/15 votes and the queue's older items; item-history
+pages if time allows  
 **Week of Oct 21:** AI layer if time allows, conference prep  
 **Week of Oct 28:** Demo rehearsal, presentation slides, an offline
 fallback for the demo (conference wifi)  
