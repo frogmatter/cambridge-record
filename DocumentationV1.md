@@ -343,6 +343,33 @@ job is the report's "Words to check": add names to `cambridge_terms.txt`.
 Caveats: three samples, one person, one real-time pass — the error rates
 are a floor.
 
+### Meeting files for a notebook (NotebookLM / Gemini)
+
+For the clerk's notebook — summaries of each meeting and questions across
+meetings — write one Markdown file per meeting and upload them as sources:
+
+```
+python notebook_export.py --show 11610    # one meeting
+python notebook_export.py --all           # every published meeting
+```
+
+Files go to `exports/notebook/`, named by date and title
+(`2026-10-06 School Committee Regular Meeting 10-6-26.md`). Each holds the
+meeting's details and links, the members on that date and how they're
+addressed, the agenda with times, the votes (official from the minutes,
+or the possible votes from the captions until minutes are posted, labelled
+as such), and the corrected transcript in timestamped paragraphs with the
+agenda's section headings at their times. Re-run after enrich picks up
+minutes, and replace the source in the notebook.
+
+**The transcript doesn't say who is speaking** — the captions carry no
+speaker labels or speaker-change marks, and `speaker_label` in
+`segments_json` is never filled. The file's notes tell the notebook how to
+work speakers out: the chair recognises each speaker, members are
+addressed by title and surname, public commenters give their names. True
+speaker labels would need the audio (a diarization tool such as
+WhisperX/pyannote, then matching voices to names) — a separate project.
+
 ### Officials
 
 The roster lives in `officials.json`: names, titles, terms, subcommittees,
@@ -379,16 +406,16 @@ Every meeting page link can point at a moment:
 | `/meeting/{slug}/?q=budget#t=3725` | …with "budget" highlighted in the transcript |
 | `/?body=School+Climate+Subcommittee` | the meeting list, one body only (search takes `&body=` too) |
 | `/?s=transportation` | search results |
-
-Search matches the words as a phrase, in order, from the start of a word
-("special ed" finds "special education"); quotes are ignored. A phrase
-must fall within one caption line, so one split across two lines is
-missed.
 | `/official/{name}/` | a member's voting record |
 | `/subcommittees/`, `/subcommittee/{name}/` | subcommittees; one subcommittee's members and meetings |
 
 The meeting page's **Copy link to this moment** button builds the first
 kind. Search results link to the second.
+
+Search matches the words as a phrase, in order, from the start of a word
+("special ed" finds "special education"); quotes are ignored. A phrase
+must fall within one caption line, so one split across two lines is
+missed.
 
 ### Updating the plugin or theme
 
@@ -417,6 +444,7 @@ new files; if a page looks stale, hard-refresh (Cmd+Shift+R).
 | Vocabulary for MediaScribe (import file) | `python improve_captions.py --mediascribe` → `exports/` |
 | Vocabulary for Cablecast (plain list) | `python improve_captions.py --vocabulary` |
 | Measure editing time | `python improve_captions.py --sample --show ID --at h:mm:ss`, then `--score` |
+| Meeting files for a notebook | `python notebook_export.py --all` → `exports/notebook/` |
 | Publish / unpublish | WP admin → Meetings → Status |
 | Logs | `pipeline.log` |
 
@@ -442,6 +470,7 @@ Matt's MacBook (local pipeline)
   │     ├── parse_minutes.py  — votes from the minutes PDF
   │     └── match_agenda.py   — roll calls in captions ↔ votes in minutes
   ├── improve_captions.py  — Cambridge terms fixes, reports, Cablecast export
+  ├── notebook_export.py   — one Markdown file per meeting for a notebook
   ├── sync_officials.py    — officials.json → Official pages
   ├── edit_meeting.py      — correct a meeting's title/date
   └── pipeline.db          — SQLite: which show is which WordPress post
@@ -586,13 +615,21 @@ Every time carries `match_method` and `match_score`; low scores go to
 Review times.
 
 **How well it works.** The October 2026 review checked all 118 official
-votes against the captions by hand. Before that, the matcher placed 82
-right, 13 confidently on the wrong roll call (a missed roll call shifted
-every vote after it) and left 23 unplaced. Tested against those checked
-times, it now places 101 right, 8 wrong and 9 unplaced, without any
-decisions to anchor it; the 5 confident errors left are all in meetings
-whose minutes are themselves wrong. To re-test after a change, compare
-`time_votes()` on each meeting's captions with its reviewed times.
+votes then posted against the captions by hand. Before that, the matcher
+placed 82 right, 13 confidently on the wrong roll call (a missed roll call
+shifted every vote after it) and left 23 unplaced. After the rebuild it
+placed 100 of 117 right on its own and 114 anchored on Review times
+decisions; the confident errors left were in meetings whose minutes are
+themselves wrong.
+
+`python evaluate_matching.py` re-runs the matcher on every meeting with
+minutes and scores it against the accepted times in WordPress (Review
+times decisions, and placements nobody has questioned); `--anchored`
+runs it as enrich does. On October 20, with 9/1 and 9/15's minutes in,
+it scored 115 of 141 right on its own (11 wrong, 15 unplaced) and 133 of
+141 anchored (none wrong, 8 unplaced). Some 9/1 and 9/15 times haven't been
+checked by a person yet, so those meetings partly score the matcher
+against itself. Run it before and after any change to `match_agenda.py`.
 
 ## The WordPress data model
 
@@ -755,14 +792,15 @@ School Committee office.
 
 ---
 
-## What's working (as of October 19, 2026)
+## What's working (as of October 20, 2026)
 
 - ✅ 35 meetings (Jan 5 – Oct 6, 2026), all published: 24 full-committee
   Regular and Special Meetings, a Budget Workshop, and 10 subcommittee
   meetings
 - ✅ Every 2026 official vote checked against the captions (Oct 4–10; 71
-  Review times decisions). The matcher scores 100/117 right on its own,
-  114/117 anchored on those decisions (`evaluate_matching.py`)
+  Review times decisions). The matcher now scores 115/141 right on its
+  own, 133/141 anchored on those decisions (`evaluate_matching.py`, Oct 20)
+- ✅ Meeting files for the clerk's notebook (`notebook_export.py`)
 - ✅ Possible votes from the captions' roll calls before minutes arrive
 - ✅ MediaScribe captions with the Cambridge vocabulary: on 10/6 every
   member's name was spelled right (65–81% Apr–Sep)
@@ -788,7 +826,9 @@ pages or search facets for private individuals, only for officials.
 **Minutes parser fixes** — `parse_minutes.py` misses 9/1's #26-180
 adoption and #26-197's "rolling call vote", 9/15's adjournment, and 1/5's
 chair election (and labels the vice chair election "Chair Weinstein closed
-the floor for nominations — Member Dube elected"). Adding votes renumbers
+the floor for nominations — Member Dube elected"). On 9/15 it also runs
+the second meeting extension's motion on into the next paragraph (the
+#26-213 reconsideration) and reads #26-212 as "adopted YEA". Adding votes renumbers
 a meeting's votes after them, and Review times decisions are keyed by
 number, so fix the parser *before* reviewing a meeting's votes. 9/1's
 review draft waits on this (`reports/review_oct10/draft.json`).
@@ -864,6 +904,7 @@ clerk's caption-accuracy worksheets
 matcher rebuilt (missed roll calls no longer shift votes; reviewed times
 anchor it); MediaScribe vocabulary export and the 10/6 result; possible
 votes from roll calls; a vote-log template and note for the clerk  
+**Done (Oct 20):** meeting files for the clerk's notebook  
 **Next:** send the clerk note with the vote log; parser fixes, then 9/1's
 review; the three 9/15 votes and the queue's older items; item-history
 pages if time allows  
