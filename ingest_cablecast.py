@@ -1,7 +1,7 @@
 """
 Cambridge Record — Cablecast Ingestion Pipeline
 Pulls School Committee meeting data from Cablecast, parses transcripts,
-and pushes structured records to WordPress on mediatechaction.com.
+and pushes structured records to WordPress on screcord.mediatechaction.com.
 
 Usage:
     source venv/bin/activate

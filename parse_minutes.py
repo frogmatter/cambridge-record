@@ -30,7 +30,7 @@ import re
 import requests
 from pypdf import PdfReader
 
-HEADERS = {'User-Agent': 'CambridgeRecord/0.1 (+https://www.mediatechaction.com)'}
+HEADERS = {'User-Agent': 'CambridgeRecord/0.1 (+https://screcord.mediatechaction.com)'}
 
 # "Member de Paula Santos", "Vice Chair Dube", "Mayor Siddiqui".
 # pypdf sometimes splits a word after its first letter ("S antos", "YE A"),

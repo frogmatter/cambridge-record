@@ -1,6 +1,6 @@
 """
 Test script: verifies the Cambridge Record WordPress plugin is correctly
-installed and working on mediatechaction.com before running the pipeline.
+installed and working on screcord.mediatechaction.com before running the pipeline.
 
 Usage:
     source venv/bin/activate
@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-WP_BASE = os.environ['WP_BASE_URL']   # https://mediatechaction.com/wp-json/wp/v2
+WP_BASE = os.environ['WP_BASE_URL']   # https://screcord.mediatechaction.com/wp-json/wp/v2
 CR_BASE = WP_BASE.replace('/wp/v2', '/cambridge-record/v1')
 AUTH    = (os.environ['WP_USERNAME'], os.environ['WP_APP_PASSWORD'])
 

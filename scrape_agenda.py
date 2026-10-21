@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup, NavigableString, Tag
 from pypdf import PdfReader
 
 PORTAL_URL = 'https://portal.cpsd.us/school_committee/'
-HEADERS    = {'User-Agent': 'CambridgeRecord/0.1 (+https://www.mediatechaction.com)'}
+HEADERS    = {'User-Agent': 'CambridgeRecord/0.1 (+https://screcord.mediatechaction.com)'}
 
 DOCKET_RE     = re.compile(r'#\s?(\d{2})\s?-\s?(\d{3})')
 LATE_ORDER_RE = re.compile(r'^#?\s*Late Order\b[^:]*:\s*', re.I)

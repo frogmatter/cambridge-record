@@ -43,7 +43,8 @@ and the player sends back `timeupdate` / `playing` / `ready` messages.
 The Cablecast embed sends
 `Content-Security-Policy: frame-ancestors …` listing only cpsd.us,
 youthviewcambridge.org, *.cambridgema.gov, *.cablecast.tv, Google Sites,
-and Finalsite. mediatechaction.com was added in Sept 2026. Any new domain (a staging
+and Finalsite. mediatechaction.com was added in Sept 2026, and replaced by
+screcord.mediatechaction.com when the site moved in October. Any new domain (a staging
 site, a new host) must be added in Cablecast too, or browsers block the
 player. The "Watch on Cablecast ↗" link under the player is the fallback.
 

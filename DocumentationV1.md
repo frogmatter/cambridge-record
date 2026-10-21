@@ -2,7 +2,7 @@
 ## How it was built, how to run it, and where it's going
 
 **Project:** Cambridge Record  
-**Site:** mediatechaction.com  
+**Site:** screcord.mediatechaction.com (moved from www.mediatechaction.com, October 2026)  
 **Started:** September 2026  
 **Target:** NEACM Conference, November 17, 2026  
 **Author:** Matt, Media Arts Manager, Cambridge Public Schools  
@@ -475,7 +475,7 @@ Matt's MacBook (local pipeline)
   ├── edit_meeting.py      — correct a meeting's title/date
   └── pipeline.db          — SQLite: which show is which WordPress post
 
-WordPress (mediatechaction.com / DreamHost shared hosting)
+WordPress (screcord.mediatechaction.com / DreamHost shared hosting)
   ├── cambridge-record plugin — post types, meta, REST endpoints, Review times
   ├── cambridge-record-theme  — meeting list, meeting page, search, officials
   └── REST API (below)
@@ -751,8 +751,9 @@ to the embedding page via `postMessage`: send
 sends back `{message: 'timeupdate', value}`, `{message: 'playing', value}`
 and `{message: 'ready'}`. Found by reading Cablecast's `VideoJs-*.js`
 bundle. The embed also only allows framing from domains on its
-`frame-ancestors` allowlist (mediatechaction.com added Sept 2026) — a
-new domain or staging site must be added in Cablecast too.
+`frame-ancestors` allowlist (mediatechaction.com added Sept 2026,
+replaced by screcord.mediatechaction.com when the site moved in October) —
+a new domain or staging site must be added in Cablecast too.
 
 **9. Caption files are UTF-8, but the CDN doesn't say so**  
 With no charset header, `requests` decodes VTT as Latin-1 and every curly

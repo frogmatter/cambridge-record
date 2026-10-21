@@ -7,7 +7,7 @@
 ## Setup instructions for your MacBook
 
 This folder contains the scripts that pull data from Cablecast and
-push it to mediatechaction.com. Everything runs on your Mac.
+push it to screcord.mediatechaction.com. Everything runs on your Mac.
 
 ---
 
@@ -32,7 +32,7 @@ Fill in every line that says `FILL_IN_THIS`:
 - `CABLECAST_BASE_URL` — your Cablecast server address
 - `CABLECAST_API_KEY` — from Cablecast admin → Settings → API
 - `SCHOOL_COMMITTEE_SHOW_ID` — run `python find_show_id.py` to find this
-- `WP_USERNAME` — your mediatechaction.com WordPress username
+- `WP_USERNAME` — your screcord.mediatechaction.com WordPress username
 - `WP_APP_PASSWORD` — from WP admin → Users → Profile → Application Passwords
 
 ---
