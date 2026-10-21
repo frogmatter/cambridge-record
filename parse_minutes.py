@@ -12,7 +12,10 @@ Parsing is anchored on each vote's *outcome* — a roll-call tally, "on a
 voice vote", or "it was voted to" — and looks back from there for the
 motion, mover and seconder. That copes with the variants seen in 2026
 minutes: missing commas, votes with no "On a motion" sentence, voice
-votes, NAYs, and tallies with a member's vote left out.
+votes, NAYs, tallies with a member's vote (or name) left out, "rolling
+call vote" / "call vote" / "roll call votes", an election's "roll call of
+members to cast their votes", and "Member X moved to …; Member Y seconded
+the motion. The motion passed …".
 
 Minutes say what was voted, not when. start_seconds stays None here and
 is filled in by matching roll calls against the transcript (later step).
@@ -42,19 +45,25 @@ NAME_RE = re.compile(NAME)
 VOTE = r'Y\s?E\s?A|N\s?A\s?Y|YES|NO|A\s?B\s?S\s?E\s?N\s?T|P\s?R\s?E\s?S\s?E?\s?N\s?T|ABSTAIN(?:ED)?|RECUSED'
 # In elections (chair, vice chair) members vote for a person: "Member Hudson, MEMBER DUBE"
 CANDIDATE = r"(?:VICE CHAIR|CHAIR|MAYOR|MEMBER)\s+[A-Z][A-Z’'\-]+(?:\s+[A-Z][A-Z’'\-]+){0,2}"
-PAIR_RE = re.compile(rf'(?P<member>{NAME})\s*,\s*(?:(?P<vote>{VOTE})|(?P<candidate>{CANDIDATE}))\b')
+PAIR_RE = re.compile(rf'(?P<member>{NAME})\s*[,;]\s*(?:(?P<vote>{VOTE})|(?P<candidate>{CANDIDATE}))\b')
 VOTE_ALIASES = {'YES': 'YEA', 'NO': 'NAY', 'ABSTAINED': 'ABSTAIN', 'PRESNT': 'PRESENT'}
 # Between pairs: separators, plus a stray bare vote ("Mayor Siddiqui, YEA; YEA; Chair …")
 TALLY_SEP_RE = re.compile(r'[\s,;]*(?:(?:YEA|NAY)\s*;\s*)?')
 
 OUTCOME_RE = re.compile(
-    r'(?P<roll>(?:on\s+)?(?:the\s+)?(?:following\s+)?roll\s+call(?:\s+vote)?(?=\s*[:,]))'
+    # "roll call vote:", and the variants "roll call votes:", "rolling call
+    # vote:", "call vote:", and an election's "roll call of members to cast
+    # their votes:" (but not the attendance "roll call of members present:")
+    r'(?P<roll>(?:on\s+)?(?:the\s+)?(?:following\s+)?(?:roll(?:ing)?\s+call(?:\s+votes?)?|call\s+votes?'
+    r'|roll\s+call\s+of\s+members\s+to\s+cast\s+their\s+votes)(?=\s*[:,]))'
     r'|(?P<voice>on\s+a\s+voice\s+vote)'
     r'|(?P<voted>\bit\s+was\s+voted\s+to\b)',
     re.I,
 )
 # Case-sensitive on purpose: names must be capitalized ("Member Jaikumar the meeting" is not a name)
 MOTION_RE  = re.compile(rf'(?:(?i:On a motion)(?:\s+by)?\s+)?(?P<mover>{NAME})\s*,?\s*(?i:seconded\s+by)\s+(?P<seconder>{NAME})\s*,?\s*')
+# "Member De Paula Santos moved to reconsider #26-213 …; Vice Chair Dube seconded the motion."
+MOVED_RE   = re.compile(rf'(?P<mover>{NAME})\s+moved\s+to\s+(?P<what>[^;]+?)\s*[;.]\s*(?P<seconder>{NAME})\s+seconded\s+the\s+motion\b')
 DOCKET_RE  = re.compile(r'#\s?(\d{2})\s?-\s?(\d{3})')
 # A sentence end — but not the one in "10:30 p.m." or an initial
 SENTENCE_END_RE = re.compile(r'(?<![ap]\.m)(?<!\b[A-Z])\.\s+(?=[A-Z#])')
@@ -140,6 +149,8 @@ def _parse_tally(text, pos, lead=250):
         return [], '', pos
 
     lead_text = text[pos:first.start()].strip(' :,;')
+    if re.fullmatch(VOTE, lead_text):
+        lead_text = ''   # a vote whose member the minutes left out ("vote: YEA; Member Harding, NAY")
     pairs, end, m = [], first.start(), first
     while m:
         if m.group('candidate'):
@@ -195,7 +206,10 @@ def parse_votes(text, source_url=None):
         window_start = max(cursor, ev.start() - 900)
         window = text[window_start:ev.start()]
         motion_at = window.rfind('On a motion')
-        if motion_at == -1:
+        moved = list(MOVED_RE.finditer(window))
+        if moved and motion_at < moved[-1].start() and not MOTION_RE.search(window, moved[-1].end()):
+            motion_at = moved[-1].start()
+        elif motion_at == -1:
             seconded = list(MOTION_RE.finditer(window))
             limit = seconded[-1].start() if seconded else len(window)
             ends = list(SENTENCE_END_RE.finditer(window, 0, limit))
@@ -210,7 +224,11 @@ def parse_votes(text, source_url=None):
         mover = seconder = None
         action = clause
         m = MOTION_RE.search(clause)
-        if m:
+        moved = MOVED_RE.match(clause)
+        if moved:
+            mover, seconder = _clean_name(moved.group('mover')), _clean_name(moved.group('seconder'))
+            action = 'motion to ' + moved.group('what')
+        elif m:
             mover, seconder = _clean_name(m.group('mover')), _clean_name(m.group('seconder'))
             action = clause[m.end():]
         action = re.sub(r'^(?:On a motion\S*\s*)', '', action)
@@ -243,8 +261,12 @@ def parse_votes(text, source_url=None):
         if candidates:
             method, result = 'election', 'elected'
             winner, n = max(candidates.items(), key=lambda kv: kv[1])
-            action = re.sub(r'\s+(?:and\s+)?asked for an?$', '', action)
-            action = f'{action} — {winner} elected with {n} vote{"s" if n != 1 else ""}'
+            office = re.findall(r'nominations\s+for\s+(Vice Chair|Chair)\b', text[window_start:ev.start()])
+            if office:
+                action = f'{winner} elected {office[-1]} with {n} vote{"s" if n != 1 else ""}'
+            else:
+                action = re.sub(r'\s+(?:and\s+)?asked for an?$', '', action)
+                action = f'{action} — {winner} elected with {n} vote{"s" if n != 1 else ""}'
             tallied = False
         if method == 'roll_call' and counts['YEA'] + counts['NAY'] and counts['YEA'] <= counts['NAY']:
             result, passed = 'failed', False

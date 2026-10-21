@@ -582,8 +582,16 @@ resolution, late order) and sponsors.
 seconder, result, each member's vote, and the dockets it decided. Parsing
 is anchored on each vote's outcome (a roll-call tally, "on a voice vote",
 "it was voted") and reads back to the motion. Tested on 2026 minutes;
-handles voice votes, NAYs, elections (votes for a candidate), and PDF
-artifacts ("S antos", "YE A", "PRESNT", "Memer").
+handles voice votes, NAYs, elections (votes for a candidate, labelled
+"Member Dube elected Vice Chair"), PDF artifacts ("S antos", "YE A",
+"PRESNT", "Memer"), and the variant wordings found in October: "rolling
+call vote", "call vote", "roll call votes", "a roll call of members to
+cast their votes", "Member X moved to …; Member Y seconded the motion. The
+motion passed…", and a vote whose member's name was left out ("vote: YEA;
+Member Harding, NAY"). After changing the parser, run it over every
+meeting's minutes and compare before and after (as in
+`reports/parser_oct20/snapshot.py`) — only the meetings you meant to fix
+should change.
 
 **Placing votes on the video** (`match_agenda.py`):
 
@@ -791,6 +799,14 @@ voted separately (1/6, 6/16), and a duplicated "public hearing closed"
 (5/5). The site shows what the minutes say; send corrections to the
 School Committee office.
 
+**16. A parser change can orphan Review times decisions**  
+Vote decisions are filed under `v{index}-{digest of the motion text}`
+(`enrich_meetings.add_review_keys()`). A parser fix that adds a vote
+renumbers every vote after it, and one that changes a vote's wording
+changes its key; decisions under the old keys silently stop applying.
+Before re-enriching, list the decisions whose key no longer matches and
+move them (October's fix: `reports/parser_oct20/migrate_review.py`).
+
 ---
 
 ## What's working (as of October 20, 2026)
@@ -823,16 +839,6 @@ School Committee office.
 **Private individuals.** Residents often take part in subcommittee
 conversations, and the minutes name them — the site should never build
 pages or search facets for private individuals, only for officials.
-
-**Minutes parser fixes** — `parse_minutes.py` misses 9/1's #26-180
-adoption and #26-197's "rolling call vote", 9/15's adjournment, and 1/5's
-chair election (and labels the vice chair election "Chair Weinstein closed
-the floor for nominations — Member Dube elected"). On 9/15 it also runs
-the second meeting extension's motion on into the next paragraph (the
-#26-213 reconsideration) and reads #26-212 as "adopted YEA". Adding votes renumbers
-a meeting's votes after them, and Review times decisions are keyed by
-number, so fix the parser *before* reviewing a meeting's votes. 9/1's
-review draft waits on this (`reports/review_oct10/draft.json`).
 
 **A "minutes check" report** — after each enrich, list votes the parser
 couldn't read, dockets not on that meeting's agenda, consent votes that
@@ -905,9 +911,10 @@ clerk's caption-accuracy worksheets
 matcher rebuilt (missed roll calls no longer shift votes; reviewed times
 anchor it); MediaScribe vocabulary export and the 10/6 result; possible
 votes from roll calls; a vote-log template and note for the clerk  
-**Done (Oct 20):** meeting files for the clerk's notebook  
-**Next:** send the clerk note with the vote log; parser fixes, then 9/1's
-review; the three 9/15 votes and the queue's older items; item-history
+**Done (Oct 20):** meeting files for the clerk's notebook; the site moved to
+screcord.mediatechaction.com; parser fixes (7 votes it had missed, three
+labels corrected); the 10/5–10/15 meetings ingested as drafts  
+**Next:** send the clerk note with the vote log; review 9/1 and 9/15 (times proposed Oct 20); the queue's older items; item-history
 pages if time allows  
 **Week of Oct 21:** AI layer if time allows, conference prep  
 **Week of Oct 28:** Demo rehearsal, presentation slides, an offline
