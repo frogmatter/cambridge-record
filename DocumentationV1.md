@@ -359,8 +359,20 @@ meeting's details and links, the members on that date and how they're
 addressed, the agenda with times, the votes (official from the minutes,
 or the possible votes from the captions until minutes are posted, labelled
 as such), and the corrected transcript in timestamped paragraphs with the
-agenda's section headings at their times. Re-run after enrich picks up
-minutes, and replace the source in the notebook.
+agenda's section headings at their times. A `- Votes:` line near the top
+says where the votes come from: official, possible (minutes not posted
+yet), or none — the run checks the CPS portal, so a meeting whose minutes
+record no votes isn't mistaken for one still waiting on minutes.
+
+**Updating the notebook** without re-adding everything: each run compares
+the files with the last run (`exports/notebook/.manifest.json`, a
+fingerprint of each file's text), leaves unchanged files alone, and ends
+with a list — *New* (add to the notebook), *Changed* (delete that source
+and upload the new file) and, on `--all`, *Gone* (a meeting renamed or
+unpublished; delete its source). New and changed files are also copied to
+`exports/notebook/updates/YYYY-MM-DD/`, so that folder is all there is to
+upload. Re-run after each ingest and after enrich picks up minutes. If
+minutes are posted but enrich hasn't read them yet, the run says so.
 
 **The transcript doesn't say who is speaking** — the captions carry no
 speaker labels or speaker-change marks, and `speaker_label` in

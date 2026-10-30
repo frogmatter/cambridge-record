@@ -11,20 +11,32 @@ The captions don't say who is speaking, so neither does the file; its notes
 tell the notebook how speakers can be worked out (the chair recognises
 members by title, public speakers give their names).
 
+Each run compares the files with the last run (exports/notebook/.manifest.json,
+a fingerprint of each file's text) and lists what to add, replace or delete in
+the notebook; new and changed files are also copied to
+exports/notebook/updates/YYYY-MM-DD/ for uploading. Unchanged files are not
+rewritten.
+
 Usage:
     python notebook_export.py --show 11610     # one meeting → exports/notebook/
     python notebook_export.py --all            # every published meeting
 """
 
 import argparse
+import datetime
+import hashlib
 import json
 import re
+import shutil
 import sqlite3
 
 from improve_captions import ROOT, _wp, fmt_time
 from match_agenda import fix_mojibake
+from scrape_agenda import get_portal_meetings
 
 OUT_DIR = ROOT / 'exports' / 'notebook'
+MANIFEST = OUT_DIR / '.manifest.json'
+UPDATES_DIR = OUT_DIR / 'updates'
 
 # A paragraph ends at the first sentence end after this many seconds,
 # and at the latest after the longer limit
@@ -117,7 +129,23 @@ def vote_lines(vote):
     return lines
 
 
-def build(meeting, show_id):
+def vote_status(votes, minutes_posted):
+    """One line saying where the file's votes come from. minutes_posted is
+    None when the portal couldn't be checked."""
+    if any(v.get('source') == 'minutes' for v in votes):
+        return 'official, from the minutes'
+    if minutes_posted:
+        if votes:
+            return 'possible, from the captions (the minutes are posted but not yet read into this file)'
+        return 'none (the minutes record no votes)'
+    if minutes_posted is None:
+        return 'possible, from the captions (minutes not posted yet)' if votes else 'none found'
+    if votes:
+        return 'possible, from the captions (minutes not posted yet)'
+    return 'none found in the captions (minutes not posted yet)'
+
+
+def build(meeting, show_id, minutes_url=None, minutes_posted=None):
     meta = meeting['meta']
     title = fix_mojibake(meeting['title']['raw'])
     day = meta['meeting_date']
@@ -135,9 +163,11 @@ def build(meeting, show_id):
     lines.append(f'- Video and transcript: {link} (add #t=SECONDS to open at a moment, e.g. {link}#t=3600)')
     if meta.get('agenda_url'):
         lines.append(f'- Agenda: {meta["agenda_url"]}')
-    minutes_url = next((v['source_url'] for v in votes if v.get('source_url')), None)
+    minutes_url = next((v['source_url'] for v in votes if v.get('source_url')), None) or minutes_url
     if minutes_url:
         lines.append(f'- Minutes: {minutes_url}')
+    status = vote_status(votes, True if minutes_url else minutes_posted)
+    lines.append(f'- Votes: {status}')
     lines.append(f'- Cablecast show: {show_id}')
 
     lines += ['', '## About this document', '',
@@ -187,19 +217,34 @@ def build(meeting, show_id):
             lines += [f'### {text} [{fmt_time(start)}]', '']
         else:
             lines += [f'[{fmt_time(start)}] {text}', '']
-    return title, day, '\n'.join(lines).rstrip() + '\n'
+    return title, day, status, '\n'.join(lines).rstrip() + '\n'
 
 
-def export(show_id, wp_id, published_only=False):
+def fingerprint(text):
+    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+
+
+def load_manifest():
+    """{file name: fingerprint} from the last run. The first time, the files
+    already in the folder are the baseline."""
+    if MANIFEST.exists():
+        return json.loads(MANIFEST.read_text(encoding='utf-8'))
+    return {p.name: fingerprint(p.read_text(encoding='utf-8')) for p in sorted(OUT_DIR.glob('*.md'))}
+
+
+def export(show_id, wp_id, published_only=False, portal=None):
+    """Write the meeting's file unless its text is unchanged. Returns (path, text, vote status)."""
     meeting = fetch_meeting(wp_id)
     if published_only and meeting['status'] != 'publish':
-        return None
-    title, day, text = build(meeting, show_id)
+        return None, None, None
+    minutes_url = (portal or {}).get('minutes_url')
+    title, day, status, text = build(meeting, show_id, minutes_url, None if portal is None else bool(minutes_url))
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     name = re.sub(r'[^\w.-]+', ' ', title.replace('/', '-')).strip()
     path = OUT_DIR / f'{day} {name}.md'
-    path.write_text(text, encoding='utf-8')
-    return path
+    if not path.exists() or path.read_text(encoding='utf-8') != text:
+        path.write_text(text, encoding='utf-8')
+    return path, text, status
 
 
 def main():
@@ -217,12 +262,59 @@ def main():
     rows = sqlite3.connect(ROOT / 'pipeline.db').execute(sql + ' ORDER BY show_date', params).fetchall()
     if not rows:
         raise SystemExit('No ingested meeting with that show ID')
+
+    # The portal says whether each meeting's minutes are posted — a meeting
+    # with no votes may have minutes that record none
+    try:
+        portal = {m['show_id']: m for m in get_portal_meetings() if m.get('show_id')}
+    except Exception as e:
+        print(f'Could not check the CPS portal for minutes ({e}); vote status from the votes alone')
+        portal = None
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    before = load_manifest()
+    after = dict(before)
+    new, changed, written = [], [], set()
     for show_id, wp_id in rows:
-        path = export(show_id, wp_id, published_only=args.all)
+        path, text, status = export(show_id, wp_id, published_only=args.all,
+                            portal=None if portal is None else portal.get(show_id, {}))
         if not path:
             print(f'skipped show {show_id} (not published)')
             continue
-        print(f'{path}  ({path.stat().st_size // 1024} KB)')
+        written.add(path.name)
+        after[path.name] = fingerprint(text)
+        if path.name not in before:
+            new.append(path)
+        elif before[path.name] != after[path.name]:
+            changed.append(path)
+        if 'not yet read' in status:
+            print(f'note: minutes are posted for show {show_id} but not read in — run enrich_meetings.py')
+
+    # A full run also finds files whose meeting is gone or renamed
+    removed = sorted(n for n in before if n not in written) if args.all else []
+    for n in removed:
+        del after[n]
+        (OUT_DIR / n).unlink(missing_ok=True)
+    MANIFEST.write_text(json.dumps(after, indent=1, sort_keys=True) + '\n', encoding='utf-8')
+
+    if new or changed:
+        folder = UPDATES_DIR / datetime.date.today().isoformat()
+        folder.mkdir(parents=True, exist_ok=True)
+        for path in new + changed:
+            shutil.copy2(path, folder / path.name)
+    for label, paths in (('New (add to the notebook)', new),
+                         ('Changed (replace the source in the notebook)', changed)):
+        if paths:
+            print(f'{label}:')
+            for path in paths:
+                print(f'  {path.name}  ({path.stat().st_size // 1024} KB)')
+    if removed:
+        print('Gone (delete the source from the notebook):')
+        for n in removed:
+            print(f'  {n}')
+    print(f'Unchanged: {len(written) - len(new) - len(changed)}')
+    if new or changed:
+        print(f'New and changed files copied to {folder}')
 
 
 if __name__ == '__main__':
