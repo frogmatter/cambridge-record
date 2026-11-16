@@ -176,6 +176,18 @@ A recurring topic tracked across multiple meetings.
 **Note:** In Phase 1, issues are seeded manually or by simple keyword matching.
 AI-powered clustering comes in Phase 5.
 
+**Two kinds of issue** (from a read of public comment, Jan–Oct 2026):
+- *Decision issues* have a motion or decision with a date, so they have an
+  arc: raised → debated → referred or voted → done. The docket numbers are
+  the spine of the page (e.g. 3rd grade reading, #26-032).
+- *Standing concerns* keep coming back with no motion attached (e.g. the
+  family experience of special education). They need a way for residents
+  to suggest them.
+
+Both use the same page: a timeline of moments (public comment, debate,
+votes). Speakers are counted by role ("8 educators, 4 parents"), never
+named, and decision issues show what happened to each referred motion.
+
 | Field name | ACF type | Notes |
 |---|---|---|
 | `issue_name` | Text | Plain language topic name |

@@ -859,7 +859,17 @@ lines per meeting to forward to the clerk.
 
 **Pages that follow an item across meetings** — one page per docket
 number (e.g. #26-125, tabled on 6/2 and 8/4, back on 9/1) built from
-existing data; a start on the `cr_issue` "issue threads".
+existing data; a start on the `cr_issue` "issue threads". A first pass
+over public comment (November 2026, kept outside the repo) found two
+kinds of issue: *decision issues* tied to motions, and *standing concerns*
+with no motion (see PROJECT_SPEC §6). Residents have asked at the
+microphone for a list of referred motions and what became of each, so a
+"referred → what happened" status per docket is a good first feature.
+
+**Learning what people look for** — the site doesn't log searches. The
+search API takes the query in the URL, so it may show up in the host's
+access logs; check that, and decide how it fits the footer's promise
+before using it.
 
 **Caption improvement, next steps** — upload corrected captions to
 Cablecast and check whether the translated caption tracks follow; a timed
